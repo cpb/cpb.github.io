@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sleep Induction — Prototype</title>
+<style>
+/* ============================================================
+   E-INK OPTIMISED — Kobo WebKit 538.1
+   Viewport: 757×790 CSS px, DPR 1
+   No animations, no transitions, no images.
+   ============================================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: Georgia, "Times New Roman", serif;
+  color: #000;
+  background: #fff;
+}
+
+/* --- Main phrase display --- */
+
+.phrase-screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 80px;
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+  -webkit-box-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  padding: 30px 40px;
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.phrase-text {
+  font-size: 28px;
+  line-height: 1.6;
+  text-align: center;
+  max-width: 650px;
+}
+
+.phrase-meta {
+  margin-top: 20px;
+  font-size: 16px;
+  color: #666;
+  text-align: center;
+  font-style: italic;
+}
+
+/* --- Bottom status bar --- */
+
+.status-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 80px;
+  border-top: 1px solid #ccc;
+  padding: 8px 16px;
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+  -webkit-box-pack: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #444;
+  background: #fff;
+}
+
+.status-row {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-pack: justify;
+  -webkit-justify-content: space-between;
+  justify-content: space-between;
+  -webkit-box-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+  margin-bottom: 2px;
+}
+
+.status-row:last-child {
+  margin-bottom: 0;
+}
+
+/* --- Tap regions (invisible overlays) --- */
+
+.tap-left,
+.tap-right {
+  position: absolute;
+  top: 0;
+  bottom: 80px;
+  width: 30%;
+  z-index: 10;
+  cursor: pointer;
+}
+
+.tap-left {
+  left: 0;
+}
+
+.tap-right {
+  right: 0;
+}
+
+/* --- Debug / Telemetry panel --- */
+
+.debug-panel {
+  display: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #fff;
+  z-index: 100;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px;
+}
+
+.debug-panel.open {
+  display: block;
+}
+
+.debug-panel h2 {
+  font-size: 20px;
+  margin-bottom: 8px;
+  border-bottom: 2px solid #000;
+  padding-bottom: 4px;
+}
+
+.debug-panel pre {
+  font-family: "Courier New", Courier, monospace;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  background: #f4f4f4;
+  border: 1px solid #ccc;
+  padding: 8px;
+  margin-bottom: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.debug-btn {
+  font-size: 14px;
+  padding: 6px 14px;
+  margin: 4px 4px 4px 0;
+  border: 1px solid #000;
+  background: #fff;
+  color: #000;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.debug-btn:active {
+  background: #000;
+  color: #fff;
+}
+
+/* --- Progress dots --- */
+
+.progress-dots {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-pack: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 16px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid #999;
+  background: #fff;
+  display: inline-block;
+}
+
+.dot.active {
+  background: #000;
+  border-color: #000;
+}
+
+.dot.visited {
+  background: #999;
+  border-color: #999;
+}
+</style>
+</head>
+<body>
+
+<!-- Invisible tap regions -->
+<div class="tap-left" id="tapLeft"></div>
+<div class="tap-right" id="tapRight"></div>
+
+<!-- Main display -->
+<div class="phrase-screen" id="phraseScreen">
+  <div class="phrase-text" id="phraseText">Tap to begin, or press a page button.</div>
+  <div class="phrase-meta" id="phraseMeta"></div>
+  <div class="progress-dots" id="progressDots"></div>
+</div>
+
+<!-- Status bar -->
+<div class="status-bar" id="statusBar">
+  <div class="status-row">
+    <span id="statusPosition">—</span>
+    <span id="statusTimer">Auto: off</span>
+  </div>
+  <div class="status-row">
+    <span id="statusTransport">Transport: fixture (stubbed XHR)</span>
+    <span><button class="debug-btn" id="btnDebug">Debug</button></span>
+  </div>
+</div>
+
+<!-- Debug / Telemetry panel -->
+<div class="debug-panel" id="debugPanel">
+  <h2>Debug &amp; Telemetry</h2>
+  <button class="debug-btn" id="btnCloseDebug">Close</button>
+  <button class="debug-btn" id="btnToggleAuto">Start Auto-Advance</button>
+  <button class="debug-btn" id="btnResetSession">Reset Session</button>
+  <button class="debug-btn" id="btnClearLog">Clear Log</button>
+
+  <h3 style="margin-top:12px; font-size:16px;">Stubbed Server Interactions</h3>
+  <pre id="serverLog">(no interactions yet)</pre>
+
+  <h3 style="font-size:16px;">Telemetry Events</h3>
+  <pre id="telemetryLog">(no events yet)</pre>
+
+  <h3 style="font-size:16px;">Timer / Sleep Detection</h3>
+  <pre id="timerLog">(timer not started)</pre>
+</div>
+
+<script>
+/* =============================================================
+   CONFIGURATION
+   ============================================================= */
+
+/** Seconds between auto-advance phrase transitions. */
+var AUTO_ADVANCE_SECONDS = 20;
+
+/** Simulated long-poll latency range in ms [min, max]. */
+var STUB_LATENCY = [200, 800];
+
+/**
+ * Threshold in ms — if a timer tick exceeds this, we infer
+ * the device slept. (Probe showed normal jitter ≤81 ms.)
+ */
+var SLEEP_GAP_THRESHOLD = 3000;
+
+/* =============================================================
+   FIXTURE DATA
+   Verses trace the hydrological cycle → AMOC → Gulf Stream.
+   Each entry stubs what a long-poll server response would carry.
+   ============================================================= */
+
+var FIXTURE_PHRASES = [
+  {
+    id: 1,
+    verse: "Row, row, row your raft\nGently through the rain,\nDrip by drip from clouds aloft,\nSleep will come again.",
+    waterBody: "Rainclouds \u2192 Puddle",
+    vessel: "Packraft",
+    stage: "Precipitation"
+  },
+  {
+    id: 2,
+    verse: "Row, row, row your raft\nDown the mountain stream,\nSnowmelt cold and crystal-bright,\nDrifting through a dream.",
+    waterBody: "Mountain stream",
+    vessel: "Packraft",
+    stage: "Surface runoff"
+  },
+  {
+    id: 3,
+    verse: "Paddle, paddle, down the brook\nPast the mossy stone,\nQuietly, quietly, quietly, quietly,\nWater finds its own.",
+    waterBody: "Brook",
+    vessel: "Inflatable kayak",
+    stage: "Tributary flow"
+  },
+  {
+    id: 4,
+    verse: "Row, row, row canoe\nDown the winding river,\nWillows lean and herons wade,\nCurrents gently quiver.",
+    waterBody: "River",
+    vessel: "Canoe",
+    stage: "Fluvial transport"
+  },
+  {
+    id: 5,
+    verse: "Row, row, row canoe\nWhere the river slows,\nLazily, lazily, lazily, lazily,\nOn and on it flows.",
+    waterBody: "Wide river \u2192 Floodplain",
+    vessel: "Canoe",
+    stage: "Meander"
+  },
+  {
+    id: 6,
+    verse: "Pull, pull, pull your shell\nAcross the glassy lake,\nSilently, silently, silently, silently,\nRipples in your wake.",
+    waterBody: "Lake",
+    vessel: "Rowing shell",
+    stage: "Lacustrine storage"
+  },
+  {
+    id: 7,
+    verse: "Paddle, paddle, sea kayak\nWhere the salt meets sweet,\nTidally, tidally, tidally, tidally,\nFresh and ocean meet.",
+    waterBody: "Estuary",
+    vessel: "Sea kayak",
+    stage: "Estuarine mixing"
+  },
+  {
+    id: 8,
+    verse: "Sail, sail, sail your boat\nAcross the sheltered bay,\nBreezily, breezily, breezily, breezily,\nRocking, rocking, sway.",
+    waterBody: "Bay",
+    vessel: "Sailing dinghy",
+    stage: "Coastal transition"
+  },
+  {
+    id: 9,
+    verse: "Sail, sail, twin-hulled craft\nAlong the warming shore,\nSteadily, steadily, steadily, steadily,\nGulf Stream starts to pour.",
+    waterBody: "Coastal shelf",
+    vessel: "Catamaran",
+    stage: "Western boundary current onset"
+  },
+  {
+    id: 10,
+    verse: "Fly, fly, foiling hull\nUpon the Gulf Stream\u2019s ride,\nPowerfully, powerfully, warm and full,\nAn ocean river, wide.",
+    waterBody: "Gulf Stream",
+    vessel: "Foiling monohull",
+    stage: "Thermohaline surface flow"
+  },
+  {
+    id: 11,
+    verse: "Fly, fly, foiling hull\nWhere warm meets Labrador,\nSwiftly, swiftly, swiftly, swiftly,\nNorth Atlantic roar.",
+    waterBody: "North Atlantic Drift",
+    vessel: "Foiling monohull",
+    stage: "AMOC upper limb"
+  },
+  {
+    id: 12,
+    verse: "Drift, drift, still your oars\nThe current cools and slows,\nHeavily, heavily, heavily, heavily,\nDense and cold it grows.",
+    waterBody: "Norwegian Sea",
+    vessel: "Dory",
+    stage: "Deepwater formation"
+  },
+  {
+    id: 13,
+    verse: "Sink, sink, sink below\nWhere the daylight ends,\nSilently, silently, silently, silently,\nThe overturning bends.",
+    waterBody: "Deep Atlantic",
+    vessel: "(Submerged — no vessel)",
+    stage: "AMOC lower limb / NADW"
+  },
+  {
+    id: 14,
+    verse: "Drift, drift, drift along\nThe abyssal plain,\nEndlessly, endlessly, endlessly, endlessly,\nDeep beneath the rain.",
+    waterBody: "Abyssal Atlantic",
+    vessel: "(Submerged — no vessel)",
+    stage: "Thermohaline return"
+  },
+  {
+    id: 15,
+    verse: "Rise, rise, rise as mist\nWhere the tropics warm,\nDreamily, dreamily, dreamily, dreamily,\nSunlight ends the storm.",
+    waterBody: "Tropical upwelling \u2192 Atmosphere",
+    vessel: "(Evaporation — no vessel)",
+    stage: "Evaporation"
+  },
+  {
+    id: 16,
+    verse: "Float, float, float as cloud\nBack across the sky,\nSleepily, sleepily, sleepily, sleepily,\nClose your heavy eyes.",
+    waterBody: "Atmosphere",
+    vessel: "(Cloud — no vessel)",
+    stage: "Atmospheric transport \u2192 Cycle complete"
+  }
+];
+
+/* =============================================================
+   STATE
+   ============================================================= */
+
+var state = {
+  currentIndex: -1,       /* -1 = title screen, 0..N = phrase index */
+  running: false,          /* auto-advance active? */
+  autoInterval: null,      /* setInterval handle */
+  sessionStart: null,      /* Date.getTime() */
+  telemetry: [],           /* array of event objects */
+  serverInteractions: [],  /* array of stubbed request/response logs */
+  lastTickTime: null,      /* for sleep detection */
+  tickWatcher: null,       /* setInterval handle for sleep detection */
+  sleepDetected: false,
+  visited: {}              /* which phrases have been shown */
+};
+
+/* =============================================================
+   HELPERS
+   ============================================================= */
+
+function $(id) { return document.getElementById(id); }
+
+function now() { return new Date().getTime(); }
+
+function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
+function formatTime(ms) {
+  var d = new Date(ms);
+  return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+
+/**
+ * E-ink redraw workaround.
+ * Micro-scroll forces the Kobo panel to repaint.
+ * Probe showed DOM mutations are invisible without this.
+ */
+function forceRedraw() {
+  /* Strategy: nudge scroll position, then nudge back.
+     Wrapped in setTimeout(0) to let the DOM settle first. */
+  setTimeout(function () {
+    window.scrollTo(0, 1);
+    setTimeout(function () {
+      window.scrollTo(0, 0);
+    }, 50);
+  }, 0);
+}
+
+/* =============================================================
+   STUBBED SERVER INTERACTIONS
+   These simulate what the real XHR long-poll and POST
+   telemetry endpoints would do. Fixture data substitutes
+   for server responses.
+   ============================================================= */
+
+/**
+ * Stub: XHR long-poll for next phrase.
+ * In production: GET /api/phrase?after=<id>&session=<sid>
+ * Server holds connection, responds when next phrase is due.
+ *
+ * Here: returns fixture data after a simulated latency.
+ */
+function stubFetchPhrase(index, callback) {
+  var latency = STUB_LATENCY[0] +
+    Math.floor(Math.random() * (STUB_LATENCY[1] - STUB_LATENCY[0]));
+
+  var requestLog = {
+    time: now(),
+    type: 'LONG_POLL',
+    method: 'GET',
+    url: '/api/phrase?after=' + (index - 1) + '&session=' + state.sessionStart,
+    status: 'pending'
+  };
+  state.serverInteractions.push(requestLog);
+
+  setTimeout(function () {
+    if (index >= 0 && index < FIXTURE_PHRASES.length) {
+      requestLog.status = 200;
+      requestLog.responseMs = latency;
+      requestLog.body = '{"id":' + FIXTURE_PHRASES[index].id +
+        ',"verse":"...","stage":"' + FIXTURE_PHRASES[index].stage + '"}';
+      callback(null, FIXTURE_PHRASES[index]);
+    } else {
+      requestLog.status = 204;
+      requestLog.responseMs = latency;
+      requestLog.body = '(no more phrases — cycle complete)';
+      callback('end', null);
+    }
+    updateServerLog();
+  }, latency);
+}
+
+/**
+ * Stub: POST telemetry event.
+ * In production: POST /api/telemetry
+ * Body: JSON with event type, timestamp, coordinates, session.
+ *
+ * Here: logs to the debug panel.
+ */
+function stubPostTelemetry(event) {
+  var payload = {
+    session: state.sessionStart,
+    ts: event.ts,
+    type: event.type,
+    detail: event.detail || {}
+  };
+
+  var requestLog = {
+    time: now(),
+    type: 'TELEMETRY',
+    method: 'POST',
+    url: '/api/telemetry',
+    status: 202,
+    body: JSON.stringify(payload)
+  };
+  state.serverInteractions.push(requestLog);
+
+  state.telemetry.push(event);
+  updateServerLog();
+  updateTelemetryLog();
+}
+
+/* =============================================================
+   DISPLAY ENGINE
+   ============================================================= */
+
+function showPhrase(index) {
+  if (index < 0 || index >= FIXTURE_PHRASES.length) { return; }
+
+  state.currentIndex = index;
+  state.visited[index] = true;
+
+  var phrase = FIXTURE_PHRASES[index];
+
+  /* Update main text */
+  var textEl = $('phraseText');
+  /* Replace \n with <br> for verse line breaks */
+  textEl.innerHTML = phrase.verse.replace(/\n/g, '<br>');
+
+  /* Update meta line */
+  $('phraseMeta').innerHTML = phrase.vessel + ' \u2014 ' +
+    phrase.waterBody + ' \u2014 ' + phrase.stage;
+
+  /* Update status */
+  $('statusPosition').innerHTML = (index + 1) + ' / ' + FIXTURE_PHRASES.length;
+
+  /* Update progress dots */
+  renderDots();
+
+  /* Force e-ink redraw */
+  forceRedraw();
+}
+
+function renderDots() {
+  var container = $('progressDots');
+  var html = '';
+  for (var i = 0; i < FIXTURE_PHRASES.length; i++) {
+    var cls = 'dot';
+    if (i === state.currentIndex) {
+      cls = cls + ' active';
+    } else if (state.visited[i]) {
+      cls = cls + ' visited';
+    }
+    html = html + '<span class="' + cls + '"></span>';
+  }
+  container.innerHTML = html;
+}
+
+/* =============================================================
+   NAVIGATION
+   ============================================================= */
+
+function goNext() {
+  var nextIndex = state.currentIndex + 1;
+  if (nextIndex >= FIXTURE_PHRASES.length) {
+    /* Wrap to beginning — the cycle repeats */
+    nextIndex = 0;
+  }
+
+  stubPostTelemetry({
+    ts: now(),
+    type: 'navigate',
+    detail: { direction: 'next', from: state.currentIndex, to: nextIndex }
+  });
+
+  stubFetchPhrase(nextIndex, function (err, phrase) {
+    if (!err) {
+      showPhrase(nextIndex);
+    }
+  });
+}
+
+function goPrev() {
+  var prevIndex = state.currentIndex - 1;
+  if (prevIndex < 0) {
+    prevIndex = FIXTURE_PHRASES.length - 1;
+  }
+
+  stubPostTelemetry({
+    ts: now(),
+    type: 'navigate',
+    detail: { direction: 'prev', from: state.currentIndex, to: prevIndex }
+  });
+
+  stubFetchPhrase(prevIndex, function (err, phrase) {
+    if (!err) {
+      showPhrase(prevIndex);
+    }
+  });
+}
+
+function startSession() {
+  state.sessionStart = now();
+  state.currentIndex = -1;
+  state.telemetry = [];
+  state.serverInteractions = [];
+  state.visited = {};
+  state.sleepDetected = false;
+
+  stubPostTelemetry({
+    ts: now(),
+    type: 'session_start',
+    detail: { ua: navigator.userAgent }
+  });
+
+  goNext();
+}
+
+/* =============================================================
+   AUTO-ADVANCE
+   ============================================================= */
+
+function startAutoAdvance() {
+  if (state.running) { return; }
+  state.running = true;
+
+  if (state.currentIndex < 0) {
+    startSession();
+  }
+
+  state.autoInterval = setInterval(function () {
+    goNext();
+  }, AUTO_ADVANCE_SECONDS * 1000);
+
+  $('statusTimer').innerHTML = 'Auto: ' + AUTO_ADVANCE_SECONDS + 's';
+  $('btnToggleAuto').innerHTML = 'Stop Auto-Advance';
+  startTickWatcher();
+
+  stubPostTelemetry({
+    ts: now(),
+    type: 'auto_start',
+    detail: { interval: AUTO_ADVANCE_SECONDS }
+  });
+}
+
+function stopAutoAdvance() {
+  state.running = false;
+  if (state.autoInterval) {
+    clearInterval(state.autoInterval);
+    state.autoInterval = null;
+  }
+  $('statusTimer').innerHTML = 'Auto: off';
+  $('btnToggleAuto').innerHTML = 'Start Auto-Advance';
+  stopTickWatcher();
+
+  stubPostTelemetry({
+    ts: now(),
+    type: 'auto_stop',
+    detail: { phraseIndex: state.currentIndex }
+  });
+}
+
+function toggleAutoAdvance() {
+  if (state.running) {
+    stopAutoAdvance();
+  } else {
+    startAutoAdvance();
+  }
+}
+
+/* =============================================================
+   SLEEP DETECTION via timer gap
+   Probe confirmed setInterval jitter ≤81 ms normally.
+   A gap > SLEEP_GAP_THRESHOLD suggests the device slept.
+   ============================================================= */
+
+function startTickWatcher() {
+  if (state.tickWatcher) { return; }
+  state.lastTickTime = now();
+  var logLines = [];
+
+  state.tickWatcher = setInterval(function () {
+    var current = now();
+    var delta = current - state.lastTickTime;
+    state.lastTickTime = current;
+
+    if (delta > SLEEP_GAP_THRESHOLD) {
+      state.sleepDetected = true;
+      var gapSeconds = Math.round(delta / 1000);
+
+      stubPostTelemetry({
+        ts: current,
+        type: 'sleep_gap_detected',
+        detail: { gapMs: delta, gapSeconds: gapSeconds }
+      });
+
+      logLines.push('[' + formatTime(current) + '] GAP: ' +
+        delta + ' ms (' + gapSeconds + 's) *** SLEEP DETECTED ***');
+    } else {
+      logLines.push('[' + formatTime(current) + '] tick delta: ' + delta + ' ms');
+    }
+
+    /* Keep last 20 lines */
+    if (logLines.length > 20) { logLines.shift(); }
+    $('timerLog').textContent = logLines.join('\n');
+  }, 1000);
+}
+
+function stopTickWatcher() {
+  if (state.tickWatcher) {
+    clearInterval(state.tickWatcher);
+    state.tickWatcher = null;
+  }
+}
+
+/* =============================================================
+   DEBUG PANEL
+   ============================================================= */
+
+function updateServerLog() {
+  var lines = [];
+  var start = Math.max(0, state.serverInteractions.length - 15);
+  for (var i = start; i < state.serverInteractions.length; i++) {
+    var r = state.serverInteractions[i];
+    lines.push('[' + formatTime(r.time) + '] ' + r.method + ' ' +
+      r.url + ' \u2192 ' + r.status +
+      (r.responseMs ? ' (' + r.responseMs + 'ms)' : ''));
+    if (r.body) {
+      lines.push('  body: ' + r.body);
+    }
+  }
+  $('serverLog').textContent = lines.length > 0 ? lines.join('\n') : '(no interactions yet)';
+}
+
+function updateTelemetryLog() {
+  var lines = [];
+  var start = Math.max(0, state.telemetry.length - 15);
+  for (var i = start; i < state.telemetry.length; i++) {
+    var t = state.telemetry[i];
+    lines.push('[' + formatTime(t.ts) + '] ' + t.type + ' ' +
+      JSON.stringify(t.detail));
+  }
+  $('telemetryLog').textContent = lines.length > 0 ? lines.join('\n') : '(no events yet)';
+}
+
+function openDebug() {
+  $('debugPanel').className = 'debug-panel open';
+  updateServerLog();
+  updateTelemetryLog();
+  forceRedraw();
+}
+
+function closeDebug() {
+  $('debugPanel').className = 'debug-panel';
+  forceRedraw();
+}
+
+function resetSession() {
+  stopAutoAdvance();
+  state.currentIndex = -1;
+  state.telemetry = [];
+  state.serverInteractions = [];
+  state.visited = {};
+  state.sleepDetected = false;
+
+  $('phraseText').textContent = 'Tap to begin, or press a page button.';
+  $('phraseMeta').innerHTML = '';
+  $('statusPosition').innerHTML = '\u2014';
+  $('statusTimer').innerHTML = 'Auto: off';
+  renderDots();
+  updateServerLog();
+  updateTelemetryLog();
+  $('timerLog').textContent = '(timer not started)';
+  forceRedraw();
+}
+
+/* =============================================================
+   INPUT HANDLING
+   Probe findings:
+   - touchstart fires immediately with coordinates
+   - click fires ~700ms later (synthetic)
+   - keydown: keyCode 40 = page-forward, 38 = page-back
+   - keyup fires but key property is "?" — use keyCode
+   ============================================================= */
+
+/* --- Touch: tap regions --- */
+
+$('tapLeft').addEventListener('touchstart', function (evt) {
+  evt.preventDefault();
+  if (state.currentIndex < 0) {
+    startSession();
+  } else {
+    goPrev();
+  }
+
+  var touch = evt.changedTouches ? evt.changedTouches[0] : null;
+  stubPostTelemetry({
+    ts: now(),
+    type: 'tap',
+    detail: {
+      region: 'left',
+      x: touch ? Math.round(touch.clientX) : null,
+      y: touch ? Math.round(touch.clientY) : null
+    }
+  });
+}, false);
+
+$('tapRight').addEventListener('touchstart', function (evt) {
+  evt.preventDefault();
+  if (state.currentIndex < 0) {
+    startSession();
+  } else {
+    goNext();
+  }
+
+  var touch = evt.changedTouches ? evt.changedTouches[0] : null;
+  stubPostTelemetry({
+    ts: now(),
+    type: 'tap',
+    detail: {
+      region: 'right',
+      x: touch ? Math.round(touch.clientX) : null,
+      y: touch ? Math.round(touch.clientY) : null
+    }
+  });
+}, false);
+
+/* Center tap: start session if on title, otherwise toggle auto */
+$('phraseScreen').addEventListener('touchstart', function (evt) {
+  /* Only handle taps in the center 40% */
+  var x = evt.changedTouches ? evt.changedTouches[0].clientX : 0;
+  var w = window.innerWidth;
+  if (x < w * 0.3 || x > w * 0.7) { return; }
+
+  if (state.currentIndex < 0) {
+    startSession();
+  }
+}, false);
+
+/* --- Keyboard: hardware page buttons --- */
+
+document.addEventListener('keydown', function (evt) {
+  var code = evt.keyCode;
+
+  if (code === 40) {
+    /* Down arrow = page-forward button */
+    evt.preventDefault();
+    if (state.currentIndex < 0) {
+      startSession();
+    } else {
+      goNext();
+    }
+    stubPostTelemetry({
+      ts: now(),
+      type: 'hw_button',
+      detail: { keyCode: code, direction: 'forward' }
+    });
+  } else if (code === 38) {
+    /* Up arrow = page-back button */
+    evt.preventDefault();
+    if (state.currentIndex < 0) {
+      startSession();
+    } else {
+      goPrev();
+    }
+    stubPostTelemetry({
+      ts: now(),
+      type: 'hw_button',
+      detail: { keyCode: code, direction: 'back' }
+    });
+  }
+}, false);
+
+/* --- Debug panel buttons --- */
+
+$('btnDebug').addEventListener('touchstart', function (evt) {
+  evt.stopPropagation();
+  openDebug();
+}, false);
+/* Fallback for desktop testing */
+$('btnDebug').onclick = function () { openDebug(); };
+
+$('btnCloseDebug').addEventListener('touchstart', function (evt) {
+  evt.stopPropagation();
+  closeDebug();
+}, false);
+$('btnCloseDebug').onclick = function () { closeDebug(); };
+
+$('btnToggleAuto').addEventListener('touchstart', function (evt) {
+  evt.stopPropagation();
+  toggleAutoAdvance();
+}, false);
+$('btnToggleAuto').onclick = function () { toggleAutoAdvance(); };
+
+$('btnResetSession').addEventListener('touchstart', function (evt) {
+  evt.stopPropagation();
+  resetSession();
+}, false);
+$('btnResetSession').onclick = function () { resetSession(); };
+
+$('btnClearLog').addEventListener('touchstart', function (evt) {
+  evt.stopPropagation();
+  $('serverLog').textContent = '(cleared)';
+  $('telemetryLog').textContent = '(cleared)';
+}, false);
+$('btnClearLog').onclick = function () {
+  $('serverLog').textContent = '(cleared)';
+  $('telemetryLog').textContent = '(cleared)';
+};
+
+/* =============================================================
+   INIT
+   ============================================================= */
+
+renderDots();
+</script>
+
+</body>
+</html>
