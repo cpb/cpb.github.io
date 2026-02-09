@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kobo Browser Capability Probe</title>
+<style>
+/* ============================================================
+   CONFIGURABLE CSS-ONLY EXFILTRATION URLS (Level 4)
+   Change these to your own server endpoints.
+   ============================================================ */
+
+.css-tap-left:active {
+  background-image: url('https://httpbin.org/get?tap=left') !important;
+}
+.css-tap-right:active {
+  background-image: url('https://httpbin.org/get?tap=right') !important;
+}
+.css-tap-left:hover {
+  background-image: url('https://httpbin.org/get?hover=left') !important;
+}
+.css-tap-right:hover {
+  background-image: url('https://httpbin.org/get?hover=right') !important;
+}
+
+/* ============================================================
+   BASE STYLES — e-ink optimised
+   ============================================================ */
+
+* {
+  margin: 0;
+  padding: 0;
+  -webkit-box-sizing: border-box;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 18px;
+}
+
+body {
+  font-family: Georgia, "Times New Roman", serif;
+  color: #000;
+  background: #fff;
+  padding: 12px;
+  line-height: 1.5;
+}
+
+h1 {
+  font-size: 1.4rem;
+  margin-bottom: 6px;
+  border-bottom: 3px solid #000;
+  padding-bottom: 6px;
+}
+
+h2 {
+  font-size: 1.15rem;
+  margin-top: 24px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #000;
+  padding-bottom: 4px;
+}
+
+h3 {
+  font-size: 1rem;
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+
+p, li, pre, code, td, th {
+  font-size: 1rem;
+}
+
+pre {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  background: #f0f0f0;
+  border: 1px solid #000;
+  padding: 8px;
+  margin: 6px 0;
+  font-family: "Courier New", Courier, monospace;
+}
+
+button {
+  font-size: 1rem;
+  padding: 10px 20px;
+  margin: 6px 4px 6px 0;
+  border: 2px solid #000;
+  background: #fff;
+  color: #000;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+button:active {
+  background: #000;
+  color: #fff;
+}
+
+.section {
+  margin-bottom: 20px;
+  padding: 10px;
+  border: 1px solid #888;
+}
+
+.result {
+  min-height: 2em;
+  padding: 6px;
+  margin-top: 6px;
+  border: 1px dashed #666;
+  background: #fafafa;
+}
+
+.pass {
+  border-left: 6px solid #000;
+  font-weight: bold;
+}
+
+.fail {
+  border-left: 6px solid #888;
+}
+
+.summary-box {
+  padding: 10px;
+  margin: 10px 0;
+  border: 3px solid #000;
+  font-weight: bold;
+  font-size: 1.1rem;
+}
+
+.timestamp {
+  font-size: 0.9rem;
+  color: #444;
+  margin-bottom: 10px;
+}
+
+/* Level 4 CSS tap targets */
+.css-tap-row {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-orient: horizontal;
+  -webkit-flex-direction: row;
+  flex-direction: row;
+  gap: 12px;
+  margin: 10px 0;
+}
+
+.css-tap-target {
+  display: -webkit-box;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-box-align: center;
+  -webkit-align-items: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  -webkit-justify-content: center;
+  justify-content: center;
+  width: 48%;
+  min-height: 80px;
+  border: 3px solid #000;
+  font-size: 1.1rem;
+  font-weight: bold;
+  text-align: center;
+  cursor: pointer;
+  text-decoration: none;
+  color: #000;
+  background: #fff;
+}
+
+.css-tap-target:active {
+  background: #ccc;
+}
+
+/* Event log table */
+.event-log-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 6px;
+}
+
+.event-log-table th,
+.event-log-table td {
+  border: 1px solid #000;
+  padding: 4px 6px;
+  text-align: left;
+  font-size: 0.85rem;
+}
+
+.event-log-table th {
+  background: #ddd;
+}
+</style>
+</head>
+<body>
+
+<h1>Kobo Browser Capability Probe</h1>
+<p class="timestamp" id="ts">Tests not yet run.</p>
+<div class="summary-box" id="summary">Summary: Press "Run All" to begin.</div>
+<button id="btnRunAll">Run All (Levels 1-3 + 5 auto-tests)</button>
+
+<!-- ============================================================
+     LEVEL 1: WebSocket
+     ============================================================ -->
+<div class="section" id="section-l1">
+  <h2>Level 1 — WebSocket (Full-Duplex Streaming)</h2>
+  <button id="btnL1">Run Level 1</button>
+  <div class="result" id="result-l1">Waiting…</div>
+</div>
+
+<!-- ============================================================
+     LEVEL 2: XHR Long Polling
+     ============================================================ -->
+<div class="section" id="section-l2">
+  <h2>Level 2 — XHR Long Polling</h2>
+  <button id="btnL2">Run Level 2</button>
+  <div class="result" id="result-l2">Waiting…</div>
+</div>
+
+<!-- ============================================================
+     LEVEL 3: Image Beacon + Meta Refresh
+     ============================================================ -->
+<div class="section" id="section-l3">
+  <h2>Level 3 — Image Beacon + Meta Refresh</h2>
+  <button id="btnL3">Run Level 3</button>
+  <div class="result" id="result-l3">Waiting…</div>
+</div>
+
+<!-- ============================================================
+     LEVEL 4: CSS-Only Exfiltration (always active)
+     ============================================================ -->
+<div class="section" id="section-l4">
+  <h2>Level 4 — CSS-Only Exfiltration (No JS Required)</h2>
+  <p>Tap each box below. These use CSS <code>:active</code> and
+     <code>:hover</code> background-image URLs to send requests
+     without JavaScript.</p>
+  <div class="css-tap-row">
+    <a class="css-tap-target css-tap-left" href="javascript:void(0)">TAP LEFT</a>
+    <a class="css-tap-target css-tap-right" href="javascript:void(0)">TAP RIGHT</a>
+  </div>
+  <p><strong>Check your server logs</strong> for requests to
+     <code>/get?tap=left</code>, <code>/get?tap=right</code>,
+     <code>/get?hover=left</code>, and <code>/get?hover=right</code>.
+     If they appear, CSS exfiltration works.</p>
+  <p>This level cannot self-report — it works even if JavaScript
+     is completely disabled.</p>
+</div>
+
+<!-- ============================================================
+     LEVEL 5: Baseline Capabilities
+     ============================================================ -->
+<div class="section" id="section-l5">
+  <h2>Level 5 — Baseline Capabilities</h2>
+
+  <h3>5a. Viewport &amp; User Agent</h3>
+  <button id="btnL5a">Run Viewport Check</button>
+  <div class="result" id="result-l5a">Waiting…</div>
+
+  <h3>5b. Timer Reliability (15 ticks)</h3>
+  <button id="btnL5b">Run Timer Test</button>
+  <p>After 15 ticks, let the device sleep, then wake it.
+     Observe whether the timer resumes and note the gap.</p>
+  <div class="result" id="result-l5b">Waiting…</div>
+
+  <h3>5c. DOM Append Cost</h3>
+  <button id="btnL5c-append">Run: Append 20 &lt;p&gt; elements</button>
+  <button id="btnL5c-replace">Run: Replace textContent</button>
+  <p>Observe whether each change causes a visible e-ink screen flash.
+     Note which method (append vs. replace) feels cleaner.</p>
+  <div class="result" id="result-l5c">
+    <div id="dom-test-container"></div>
+  </div>
+
+  <h3>5d. Input Event Log</h3>
+  <p>Tap the screen, swipe, and press the hardware page-turn buttons.
+     The last 10 events appear below.</p>
+  <div class="result" id="result-l5d">
+    <table class="event-log-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Type</th>
+          <th>Timestamp</th>
+          <th>Detail</th>
+        </tr>
+      </thead>
+      <tbody id="event-log-body">
+        <tr><td colspan="4">No events yet.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ============================================================
+     JAVASCRIPT — ES5 ONLY
+     ============================================================ -->
+<script>
+/* =============================================================
+   CONFIGURABLE URLS — change these to point at your server
+   ============================================================= */
+var WS_URL    = 'wss://echo.websocket.events';
+var XHR_URL   = 'https://httpbin.org/get';
+var XHR_POST_URL = 'https://httpbin.org/post';
+var BEACON_URL = 'https://httpbin.org/get?probe=img_beacon';
+/* Meta-refresh target: current page with a query flag */
+var META_REFRESH_URL = (function () {
+  var loc = window.location.href.split('?')[0];
+  return loc + '?meta_refresh_fired=1';
+})();
+
+/* =============================================================
+   STATE
+   ============================================================= */
+var levelResults = { 1: null, 2: null, 3: null };
+var eventLog = [];
+var eventCounter = 0;
+
+/* =============================================================
+   HELPERS
+   ============================================================= */
+function $(id) { return document.getElementById(id); }
+
+function log(targetId, msg) {
+  var el = $(targetId);
+  el.innerHTML = el.innerHTML + msg + '<br>';
+}
+
+function clearResult(targetId) {
+  $(targetId).innerHTML = '';
+}
+
+function markPass(targetId) {
+  $(targetId).className = 'result pass';
+}
+
+function markFail(targetId) {
+  $(targetId).className = 'result fail';
+}
+
+function updateSummary() {
+  var best = null;
+  for (var i = 1; i <= 3; i++) {
+    if (levelResults[i] === true) {
+      best = i;
+      break;
+    }
+  }
+  var el = $('summary');
+  if (best !== null) {
+    var labels = {
+      1: 'WebSocket — full-duplex streaming available.',
+      2: 'XHR — long polling is viable.',
+      3: 'Image Beacon — telemetry via pixel requests; phrases via page reload.'
+    };
+    el.innerHTML = 'Highest transport: Level ' + best + ' — ' + labels[best];
+  } else {
+    var anyRan = false;
+    for (var j = 1; j <= 3; j++) {
+      if (levelResults[j] !== null) { anyRan = true; break; }
+    }
+    if (anyRan) {
+      el.innerHTML = 'No JS-based transport passed. Try Level 4 (CSS-only) — check your server logs.';
+    }
+  }
+}
+
+function stampTime() {
+  $('ts').innerHTML = 'Tests initiated: ' + new Date().toString();
+}
+
+function enumerateProps(obj, label) {
+  var own = [];
+  var inherited = [];
+  for (var key in obj) {
+    try {
+      var val = obj[key];
+      var display = (typeof val === 'function') ? '[function]' : String(val);
+      if (display.length > 120) { display = display.substring(0, 120) + '…'; }
+    } catch (e) {
+      var display = '[error reading: ' + e.message + ']';
+    }
+    if (obj.hasOwnProperty(key)) {
+      own.push(key + ': ' + display);
+    } else {
+      inherited.push(key + ': ' + display);
+    }
+  }
+  var out = '<strong>' + label + ' — Own properties (' + own.length + '):</strong><pre>';
+  out = out + (own.length > 0 ? own.join('\n') : '(none)');
+  out = out + '</pre><strong>' + label + ' — Inherited properties (' + inherited.length + '):</strong><pre>';
+  out = out + (inherited.length > 0 ? inherited.join('\n') : '(none)');
+  out = out + '</pre>';
+  return out;
+}
+
+/* =============================================================
+   LEVEL 1 — WebSocket
+   ============================================================= */
+function runLevel1() {
+  var tid = 'result-l1';
+  clearResult(tid);
+  levelResults[1] = false;
+
+  /* Feature detection */
+  var WSConstructor = window.WebSocket || window.MozWebSocket || null;
+  if (!WSConstructor) {
+    log(tid, 'FAIL — window.WebSocket: ' + typeof window.WebSocket);
+    log(tid, 'FAIL — window.MozWebSocket: ' + typeof window.MozWebSocket);
+    log(tid, 'WebSocket constructor not found.');
+    markFail(tid);
+    updateSummary();
+    return;
+  }
+  log(tid, 'WebSocket constructor found: ' +
+    (window.WebSocket ? 'window.WebSocket' : 'window.MozWebSocket'));
+
+  var ws;
+  var testString = 'kobo-probe-' + new Date().getTime();
+  var timeoutId;
+
+  try {
+    ws = new WSConstructor(WS_URL);
+  } catch (e) {
+    log(tid, 'FAIL — constructor threw: ' + e.message);
+    markFail(tid);
+    updateSummary();
+    return;
+  }
+
+  log(tid, 'Connecting to ' + WS_URL + ' …');
+
+  /* Timeout: 15 seconds */
+  timeoutId = setTimeout(function () {
+    log(tid, 'TIMEOUT — no onopen or onerror after 15 s.');
+    try { ws.close(); } catch (e) { /* ignore */ }
+    if (levelResults[1] !== true) {
+      levelResults[1] = false;
+      markFail(tid);
+      updateSummary();
+    }
+  }, 15000);
+
+  ws.onopen = function () {
+    clearTimeout(timeoutId);
+    log(tid, 'onopen fired. readyState = ' + ws.readyState);
+    log(tid, enumerateProps(ws, 'WebSocket instance'));
+    log(tid, 'Sending test string: "' + testString + '"');
+    try {
+      ws.send(testString);
+    } catch (e) {
+      log(tid, 'send() threw: ' + e.message);
+    }
+  };
+
+  ws.onmessage = function (evt) {
+    var data = evt.data;
+    log(tid, 'onmessage received: "' + String(data).substring(0, 200) + '"');
+    if (String(data).indexOf(testString) !== -1) {
+      log(tid, '<strong>PASS — echo confirmed. Full-duplex streaming is available.</strong>');
+      levelResults[1] = true;
+      markPass(tid);
+    } else {
+      log(tid, 'Received data did not match sent string.');
+    }
+    try { ws.close(); } catch (e) { /* ignore */ }
+    updateSummary();
+  };
+
+  ws.onerror = function (evt) {
+    clearTimeout(timeoutId);
+    var info = '';
+    if (evt) {
+      try {
+        info = JSON.stringify(evt);
+      } catch (e2) {
+        for (var k in evt) {
+          try { info = info + k + '=' + evt[k] + '; '; } catch (e3) { /* skip */ }
+        }
+      }
+    }
+    log(tid, 'onerror fired. Detail: ' + (info || '(no detail available)'));
+    if (levelResults[1] !== true) {
+      log(tid, 'FAIL — WebSocket error.');
+      levelResults[1] = false;
+      markFail(tid);
+      updateSummary();
+    }
+  };
+
+  ws.onclose = function (evt) {
+    log(tid, 'onclose fired. code=' + evt.code + ' reason="' + evt.reason + '"');
+  };
+}
+
+/* =============================================================
+   LEVEL 2 — XHR Long Polling
+   ============================================================= */
+function runLevel2() {
+  var tid = 'result-l2';
+  clearResult(tid);
+  levelResults[2] = false;
+
+  if (typeof XMLHttpRequest === 'undefined') {
+    log(tid, 'FAIL — XMLHttpRequest is undefined.');
+    markFail(tid);
+    updateSummary();
+    return;
+  }
+  log(tid, 'XMLHttpRequest exists.');
+
+  var getOk = false;
+  var postOk = false;
+
+  /* --- GET test --- */
+  log(tid, '--- GET ' + XHR_URL + ' ---');
+  var xhrGet = new XMLHttpRequest();
+  try {
+    xhrGet.open('GET', XHR_URL, true);
+  } catch (e) {
+    log(tid, 'GET open() threw: ' + e.message);
+  }
+
+  xhrGet.onreadystatechange = function () {
+    if (xhrGet.readyState === 4) {
+      log(tid, 'GET onreadystatechange → readyState 4');
+      log(tid, 'GET status: ' + xhrGet.status);
+      var bodySnippet = '';
+      try {
+        bodySnippet = xhrGet.responseText.substring(0, 300);
+      } catch (e) {
+        bodySnippet = '(could not read responseText: ' + e.message + ')';
+      }
+      log(tid, 'GET response body (first 300 chars):<pre>' + bodySnippet + '</pre>');
+
+      if (xhrGet.status >= 200 && xhrGet.status < 400 && bodySnippet.length > 0) {
+        log(tid, 'GET response was readable — CORS may not be enforced (convenient).');
+        getOk = true;
+      } else if (xhrGet.status === 0 && bodySnippet.length === 0) {
+        log(tid, 'GET status 0, empty body — CORS likely blocked the response.');
+      }
+      runPost();
+    }
+  };
+
+  var getTimeout = setTimeout(function () {
+    log(tid, 'GET timeout after 15 s.');
+    try { xhrGet.abort(); } catch (e) { /* ignore */ }
+    runPost();
+  }, 15000);
+
+  try {
+    xhrGet.send();
+  } catch (e) {
+    clearTimeout(getTimeout);
+    log(tid, 'GET send() threw: ' + e.message);
+    runPost();
+  }
+
+  /* --- POST test --- */
+  function runPost() {
+    clearTimeout(getTimeout);
+    log(tid, '--- POST ' + XHR_POST_URL + ' ---');
+    var xhrPost = new XMLHttpRequest();
+    try {
+      xhrPost.open('POST', XHR_POST_URL, true);
+    } catch (e) {
+      log(tid, 'POST open() threw: ' + e.message);
+      finalise();
+      return;
+    }
+
+    var headerSet = false;
+    try {
+      xhrPost.setRequestHeader('Content-Type', 'application/json');
+      headerSet = true;
+    } catch (e) {
+      log(tid, 'setRequestHeader threw: ' + e.message);
+    }
+    log(tid, 'Content-Type header settable: ' + headerSet);
+
+    xhrPost.onreadystatechange = function () {
+      if (xhrPost.readyState === 4) {
+        log(tid, 'POST onreadystatechange → readyState 4');
+        log(tid, 'POST status: ' + xhrPost.status);
+        var body = '';
+        try {
+          body = xhrPost.responseText.substring(0, 300);
+        } catch (e) {
+          body = '(could not read: ' + e.message + ')';
+        }
+        log(tid, 'POST response body (first 300 chars):<pre>' + body + '</pre>');
+
+        if (xhrPost.status >= 200 && xhrPost.status < 400 && body.length > 0) {
+          log(tid, 'POST response readable — CORS not blocking.');
+          postOk = true;
+        } else if (xhrPost.status === 0) {
+          log(tid, 'POST status 0 — CORS likely blocked.');
+        }
+        finalise();
+      }
+    };
+
+    var postTimeout = setTimeout(function () {
+      log(tid, 'POST timeout after 15 s.');
+      try { xhrPost.abort(); } catch (e) { /* ignore */ }
+      finalise();
+    }, 15000);
+
+    var payload = '{"probe":"kobo","ts":' + new Date().getTime() + '}';
+    try {
+      xhrPost.send(payload);
+    } catch (e) {
+      clearTimeout(postTimeout);
+      log(tid, 'POST send() threw: ' + e.message);
+      finalise();
+    }
+
+    function finalise() {
+      clearTimeout(postTimeout);
+      if (getOk || postOk) {
+        log(tid, '<strong>PASS — XHR networking works. Long polling is viable.</strong>');
+        log(tid, 'GET: ' + (getOk ? 'OK' : 'FAILED') + ' | POST: ' + (postOk ? 'OK' : 'FAILED'));
+        levelResults[2] = true;
+        markPass(tid);
+      } else {
+        log(tid, 'FAIL — neither GET nor POST returned a readable response.');
+        markFail(tid);
+      }
+      updateSummary();
+    }
+  }
+}
+
+/* =============================================================
+   LEVEL 3 — Image Beacon + Meta Refresh
+   ============================================================= */
+function runLevel3() {
+  var tid = 'result-l3';
+  clearResult(tid);
+  levelResults[3] = false;
+
+  /* --- Image beacon --- */
+  log(tid, '--- Image Beacon ---');
+  log(tid, 'Creating &lt;img&gt; with src = ' + BEACON_URL);
+  var img = document.createElement('img');
+  img.setAttribute('width', '1');
+  img.setAttribute('height', '1');
+  img.style.display = 'block';
+
+  img.onload = function () {
+    log(tid, 'Image onload fired — browser made the HTTP request. PASS');
+    levelResults[3] = true;
+    markPass(tid);
+    updateSummary();
+  };
+
+  img.onerror = function () {
+    log(tid, 'Image onerror fired — browser attempted the HTTP request (server returned non-image or CORS blocked the response, but the request was likely sent). Partial PASS');
+    if (levelResults[3] !== true) {
+      levelResults[3] = true;
+      markPass(tid);
+    }
+    updateSummary();
+  };
+
+  img.src = BEACON_URL + '&_t=' + new Date().getTime();
+
+  var container = document.createElement('div');
+  container.appendChild(img);
+  $(tid).appendChild(container);
+
+  /* Timeout for image */
+  setTimeout(function () {
+    if (levelResults[3] !== true) {
+      log(tid, 'Image beacon: no onload/onerror after 15 s — uncertain.');
+    }
+  }, 15000);
+
+  /* --- Meta Refresh --- */
+  log(tid, '--- Meta Refresh ---');
+  log(tid, 'Injecting &lt;meta http-equiv="refresh" content="5;url=' + META_REFRESH_URL + '"&gt;');
+  var meta = document.createElement('meta');
+  meta.setAttribute('http-equiv', 'refresh');
+  meta.setAttribute('content', '5;url=' + META_REFRESH_URL);
+  try {
+    document.getElementsByTagName('head')[0].appendChild(meta);
+    log(tid, 'Meta tag injected. Observe: does the page reload in ~5 seconds?');
+    log(tid, 'If it reloads, the URL bar should contain "?meta_refresh_fired=1".');
+    log(tid, 'NOTE: If dynamic injection does not trigger a reload, you can manually add the following to the &lt;head&gt; of this file and reload:');
+    log(tid, '<code>&lt;meta http-equiv="refresh" content="5;url=' + META_REFRESH_URL + '"&gt;</code>');
+  } catch (e) {
+    log(tid, 'Could not inject meta tag: ' + e.message);
+  }
+
+  /* Detect if we arrived via meta refresh */
+  if (window.location.search.indexOf('meta_refresh_fired=1') !== -1) {
+    log(tid, '<strong>META REFRESH CONFIRMED — this page loaded via meta refresh redirect.</strong>');
+  }
+}
+
+/* =============================================================
+   LEVEL 5a — Viewport & User Agent
+   ============================================================= */
+function runLevel5a() {
+  var tid = 'result-l5a';
+  clearResult(tid);
+  var info = '';
+  info = info + 'navigator.userAgent:\n  ' + (navigator.userAgent || '(unavailable)') + '\n\n';
+  info = info + 'window.innerWidth:  ' + (window.innerWidth || '(unavailable)') + '\n';
+  info = info + 'window.innerHeight: ' + (window.innerHeight || '(unavailable)') + '\n';
+  info = info + 'screen.width:       ' + (screen.width || '(unavailable)') + '\n';
+  info = info + 'screen.height:      ' + (screen.height || '(unavailable)') + '\n';
+  info = info + 'devicePixelRatio:   ' + (window.devicePixelRatio || '(unavailable)') + '\n';
+  log(tid, '<pre>' + info + '</pre>');
+}
+
+/* =============================================================
+   LEVEL 5b — Timer Reliability
+   ============================================================= */
+var timerInterval = null;
+function runLevel5b() {
+  var tid = 'result-l5b';
+  clearResult(tid);
+
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
+
+  var tickCount = 0;
+  var maxTicks = 15;
+  var lastTime = new Date().getTime();
+  var continueAfterMax = true; /* keep running so user can test sleep/wake */
+
+  log(tid, 'Starting setInterval(fn, 1000). Measuring ' + maxTicks + ' ticks, then continuing for sleep/wake test.');
+
+  timerInterval = setInterval(function () {
+    var now = new Date().getTime();
+    var delta = now - lastTime;
+    lastTime = now;
+    tickCount = tickCount + 1;
+
+    if (tickCount <= maxTicks) {
+      log(tid, 'Tick ' + tickCount + '/' + maxTicks + ' — delta: ' + delta + ' ms (expected ~1000)');
+    } else {
+      log(tid, 'Tick ' + tickCount + ' (post-test) — delta: ' + delta + ' ms' +
+        (delta > 3000 ? ' *** LARGE GAP — possible sleep/wake ***' : ''));
+    }
+
+    if (tickCount === maxTicks) {
+      log(tid, '<strong>Initial ' + maxTicks + ' ticks complete.</strong> Timer continues. Let the device sleep, then wake it to test gap detection.');
+    }
+  }, 1000);
+}
+
+/* =============================================================
+   LEVEL 5c — DOM Append Cost
+   ============================================================= */
+var domAppendInterval = null;
+var domReplaceInterval = null;
+
+function runLevel5cAppend() {
+  var tid = 'result-l5c';
+  var container = $('dom-test-container');
+  container.innerHTML = '';
+  clearResult(tid);
+  container = $('dom-test-container'); /* re-fetch after clear */
+
+  if (domAppendInterval) { clearInterval(domAppendInterval); }
+  if (domReplaceInterval) { clearInterval(domReplaceInterval); }
+
+  var count = 0;
+  var max = 20;
+  log(tid, 'Appending 20 &lt;p&gt; elements, one per second. Watch for e-ink screen flashes.');
+
+  domAppendInterval = setInterval(function () {
+    count = count + 1;
+    if (count > max) {
+      clearInterval(domAppendInterval);
+      domAppendInterval = null;
+      log(tid, 'Append test complete. Did each append cause a visible screen flash?');
+      return;
+    }
+    var p = document.createElement('p');
+    p.textContent = 'Appended paragraph #' + count + ' at ' + new Date().toLocaleTimeString();
+    container.appendChild(p);
+  }, 1000);
+}
+
+function runLevel5cReplace() {
+  var tid = 'result-l5c';
+  var container = $('dom-test-container');
+  container.innerHTML = '<p id="replace-target">—</p>';
+  clearResult(tid);
+  container = $('dom-test-container');
+  container.innerHTML = '<p id="replace-target">—</p>';
+
+  if (domAppendInterval) { clearInterval(domAppendInterval); }
+  if (domReplaceInterval) { clearInterval(domReplaceInterval); }
+
+  var count = 0;
+  var max = 20;
+  log(tid, 'Replacing textContent of a single element, once per second. Watch for e-ink screen flashes.');
+
+  domReplaceInterval = setInterval(function () {
+    count = count + 1;
+    if (count > max) {
+      clearInterval(domReplaceInterval);
+      domReplaceInterval = null;
+      log(tid, 'Replace test complete. Did each update cause a visible screen flash? Was it cleaner than append?');
+      return;
+    }
+    var target = $('replace-target');
+    if (target) {
+      target.textContent = 'Updated #' + count + ' at ' + new Date().toLocaleTimeString();
+    }
+  }, 1000);
+}
+
+/* =============================================================
+   LEVEL 5d — Input Event Log
+   ============================================================= */
+function initEventLog() {
+  var types = ['touchstart', 'touchend', 'click', 'keydown', 'keyup'];
+  for (var i = 0; i < types.length; i++) {
+    (function (type) {
+      document.addEventListener(type, function (evt) {
+        eventCounter = eventCounter + 1;
+        var detail = '';
+        if (type === 'touchstart' || type === 'touchend') {
+          try {
+            var touch = evt.changedTouches[0];
+            detail = 'x=' + Math.round(touch.clientX) + ' y=' + Math.round(touch.clientY);
+          } catch (e) {
+            detail = '(no touch coords)';
+          }
+        } else if (type === 'click') {
+          detail = 'x=' + evt.clientX + ' y=' + evt.clientY;
+        } else if (type === 'keydown' || type === 'keyup') {
+          detail = 'keyCode=' + evt.keyCode + ' key=' + (evt.key || '?');
+        }
+
+        eventLog.push({
+          num: eventCounter,
+          type: type,
+          ts: new Date().getTime(),
+          detail: detail
+        });
+        if (eventLog.length > 10) {
+          eventLog.shift();
+        }
+        renderEventLog();
+      }, false);
+    })(types[i]);
+  }
+}
+
+function renderEventLog() {
+  var tbody = $('event-log-body');
+  var html = '';
+  for (var i = 0; i < eventLog.length; i++) {
+    var e = eventLog[i];
+    html = html + '<tr><td>' + e.num + '</td><td>' + e.type +
+      '</td><td>' + e.ts + '</td><td>' + e.detail + '</td></tr>';
+  }
+  if (html === '') {
+    html = '<tr><td colspan="4">No events yet.</td></tr>';
+  }
+  tbody.innerHTML = html;
+}
+
+/* =============================================================
+   WIRING
+   ============================================================= */
+$('btnRunAll').onclick = function () {
+  stampTime();
+  runLevel1();
+  runLevel2();
+  runLevel3();
+  runLevel5a();
+  runLevel5b();
+};
+
+$('btnL1').onclick = function () { stampTime(); runLevel1(); };
+$('btnL2').onclick = function () { stampTime(); runLevel2(); };
+$('btnL3').onclick = function () { stampTime(); runLevel3(); };
+$('btnL5a').onclick = function () { runLevel5a(); };
+$('btnL5b').onclick = function () { runLevel5b(); };
+$('btnL5c-append').onclick = function () { runLevel5cAppend(); };
+$('btnL5c-replace').onclick = function () { runLevel5cReplace(); };
+
+/* Initialise event listeners immediately */
+initEventLog();
+
+/* Detect if this is a meta-refresh arrival */
+if (window.location.search.indexOf('meta_refresh_fired=1') !== -1) {
+  $('result-l3').innerHTML = '<strong>META REFRESH CONFIRMED — ' +
+    'this page loaded via meta refresh redirect at ' + new Date().toString() + '</strong><br>';
+}
+</script>
+
+</body>
+</html>
