@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Johari Terrace</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Spline+Sans+Mono:wght@400;500&display=swap');
+  :root{
+    --paper:#f3ead8; --ink:#23201b; --ink-soft:#6b6354;
+    --open:#3f7d6e; --hidden:#c8843c; --blind:#9a5b7e; --unknown:#4a5470;
+    --idea:#2f6d5f; --release:#b8442e; --fog:#1a1815; --labball:#cf7d34;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;background:var(--paper);color:var(--ink);font-family:'Spline Sans Mono',monospace;overflow:hidden}
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:5;opacity:.05;
+    background-image:radial-gradient(var(--ink) .5px,transparent .5px);background-size:4px 4px}
+  canvas{display:block;position:fixed;inset:0;touch-action:none}
+  .hud{position:fixed;left:clamp(16px,3vw,40px);top:clamp(16px,3vw,40px);z-index:10;pointer-events:none}
+  .hud h1{font-family:'Fraunces',serif;font-weight:900;font-size:clamp(20px,2.6vw,34px);letter-spacing:-.02em;line-height:.95}
+  .hud p{font-size:clamp(10px,1vw,12.5px);color:var(--ink-soft);margin-top:6px;max-width:36ch;line-height:1.5;min-height:3em}
+  .controls{position:fixed;bottom:clamp(16px,3vw,36px);left:0;right:0;z-index:10;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;padding:0 16px;align-items:center}
+  button{font-family:'Spline Sans Mono',monospace;font-size:18px;line-height:1;color:var(--ink);background:var(--paper);
+    border:1.5px solid var(--ink);width:46px;height:46px;display:flex;align-items:center;justify-content:center;
+    border-radius:2px;cursor:pointer;box-shadow:3px 3px 0 var(--ink);transition:transform .08s,box-shadow .08s;padding:0}
+  button:hover{transform:translate(1px,1px);box-shadow:2px 2px 0 var(--ink)}
+  button:active{transform:translate(3px,3px);box-shadow:0 0 0 var(--ink)}
+  button.alt.on{background:var(--open);filter:saturate(1.4)}
+  .dots{display:flex;gap:9px;align-items:center;align-self:center;min-width:9ch;justify-content:center}
+  .dots i{width:9px;height:9px;border-radius:50%;background:var(--ink);opacity:.18;transition:opacity .3s,transform .3s}
+  .dots i.on{opacity:.9;transform:scale(1.25)}
+  .tip{position:fixed;bottom:clamp(74px,11vw,104px);left:0;right:0;z-index:10;text-align:center;font-size:12px;color:var(--ink-soft);pointer-events:none}
+  .tip[hidden]{display:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="tip" id="tip" hidden><b>→ / space</b> next &nbsp;·&nbsp; <b>←</b> back &nbsp;·&nbsp; <b>f</b> free play (click drops · hold lifts)</div>
+<div class="controls">
+  <button id="back" title="back">◀</button>
+  <span id="dots" class="dots"></span>
+  <button id="next" title="next">▶</button>
+  <button id="restart" title="restart">↺</button>
+  <button class="alt" id="freeplay" title="free play">🎮</button>
+  <button id="help" title="help">?</button>
+</div>
+
+<script>
+const cv=document.getElementById('c'); const ctx=cv.getContext('2d'); let W,H,DPR;
+
+// ===== world =====
+// xz floor. x: west(-)..east(+).  z: NORTH(-)..SOUTH(+).
+// Layout (north at top/back, south at front/bottom):
+//   NORTH row (z<0): unknown-to-self column. UNKNOWN (north), highest.
+//   SOUTH row (z>0): known-to-self.          OPEN (south/arena), lowest.
+// We want: UNKNOWN north & high, OPEN south & low. Hidden/Blind mid.
+const GRID=2.0;
+const STEP=GRID*0.42;
+// base heights: unknown highest -> blind/hidden mid -> open lowest
+const CELLS={
+  unknown:{minx:-GRID,maxx:0, minz:-GRID,maxz:0, base:STEP*2, label:'UNKNOWN', sub:'unknown to self · unknown to others', fogged:true,  color:'--unknown'},
+  blind:  {minx:0,maxx:GRID,  minz:-GRID,maxz:0, base:STEP,   label:'BLIND',   sub:'unknown to self · known to others',   fogged:true,  color:'--blind'},
+  hidden: {minx:-GRID,maxx:0, minz:0,maxz:GRID,  base:STEP,   label:'HIDDEN',  sub:'known to self · unknown to others',   fogged:false, color:'--hidden'},
+  open:   {minx:0,maxx:GRID,  minz:0,maxz:GRID,  base:0,      label:'OPEN',    sub:'known to self · known to others',     fogged:false, color:'--open'}
+};
+function cellKey(cell){for(const k in CELLS) if(CELLS[k]===cell) return k; return null;}
+function centerOf(key){const c=CELLS[key];return {x:(c.minx+c.maxx)/2, z:(c.minz+c.maxz)/2};}
+
+// ===== parametric camera: pitch 0 = flat head-on diagram, 1 = iso terrace =====
+let pitch=0, pitchTarget=0;
+const ISO=Math.PI/6;
+function project(x,y,z){
+  const t=pitch;
+  const ang=ISO*t;
+  const ca=Math.cos(ang), sa=Math.sin(ang);
+  // Flat (t=0): X=x, Y=z  (plan view, north up). Height unused.
+  // Iso  (t=1): X=(x - z)*cos30 ; Y=(x + z)*sin30 - height
+  const Xflat=x,            Yflat=z;
+  const Xiso=(x - z)*Math.cos(ISO), Yiso=(x + z)*Math.sin(ISO) - y;
+  const X = Xflat*(1-t) + Xiso*t;
+  const Y = Yflat*(1-t) + Yiso*t;
+  return {X:ox+X*scale, Y:oy+Y*scale};
+}
+let scale=1, ox=0, oy=0;
+function layout(){
+  DPR=devicePixelRatio||1;
+  W=cv.width=innerWidth*DPR; H=cv.height=innerHeight*DPR;
+  cv.style.width=innerWidth+'px'; cv.style.height=innerHeight+'px';
+  computeScale();
+}
+function computeScale(){
+  // flat view spans ~GRID*2.5 ; iso zoomed in tighter for full-bleed on the front cells
+  const span = (1-pitch)*(GRID*2.5) + pitch*(GRID*3.1);
+  scale=Math.min(W/span, H/span);
+  ox=W/2;
+  // flat: centred. iso: shift the world up the screen so Hidden/Open/Blind fill the frame
+  oy=H*(0.5 - 0.16*pitch);
+}
+function cssVar(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+function hexA(v,a){const h=cssVar(v);return `rgba(${parseInt(h.slice(1,3),16)},${parseInt(h.slice(3,5),16)},${parseInt(h.slice(5,7),16)},${a})`;}
+
+// ===== deform: WEIGHT-ONLY. Mass in a cell sinks its fabric into a well. =====
+const cellMass={open:0,hidden:0,blind:0,unknown:0};   // accumulated weight
+const amp={open:0,hidden:0,blind:0,unknown:0};        // animated well depth (negative=sunk)
+const fill={open:0,hidden:0,blind:0,unknown:0};       // rising fill height inside the basin
+const SIG=GRID*0.42;
+const DEPTH_PER_MASS=GRID*0.075;   // how much each unit of mass deepens the well
+const MAX_DEPTH=GRID*1.1;
+const MASS_ORIGINAL=1, MASS_LAB=1.8; // lab ideas are heavier
+const releaseWell={unknown:0};
+const lift={open:0,hidden:0,blind:0,unknown:0};       // long-press peak (free play): positive = up
+const liftTarget={open:0,hidden:0,blind:0,unknown:0};
+const LIFT_MAX=GRID*0.7;
+function cellAmp(key){let a=amp[key]+lift[key]; if(key==='unknown') a+=releaseWell.unknown; return a;}
+function fabricY(cell,x,z){
+  let h=cell.base*pitch;             // terrace only rises as we tilt into iso
+  const a=cellAmp(cellKey(cell))*pitch;  // a<=0 -> dips into a well
+  if(Math.abs(a)>0.001){
+    const cx=(cell.minx+cell.maxx)/2, cz=(cell.minz+cell.maxz)/2;
+    const r2=(x-cx)*(x-cx)+(z-cz)*(z-cz);
+    h+=a*Math.exp(-r2/(2*SIG*SIG));
+  }
+  return h;
+}
+// the fill surface height at a cell centre (sits above the well floor as mass piles in)
+function fillSurfaceY(cell){
+  const cx=(cell.minx+cell.maxx)/2, cz=(cell.minz+cell.maxz)/2;
+  const floor=fabricY(cell,cx,cz);             // bottom of the basin
+  return floor + fill[cellKey(cell)]*pitch;    // fill rises from the floor
+}
+
+// ===== fog of war (north / unknown-to-self cells: unknown + blind) =====
+const FOG_N=40; const fog=[];
+function initFog(){fog.length=0;for(let i=0;i<FOG_N;i++){fog.push([]);for(let j=0;j<FOG_N;j++)fog[i].push(1);}}
+// fog grid spans the NORTH row z:-GRID..0, full x:-GRID..GRID
+function fogIdx(x,z){const i=Math.floor(((x+GRID)/(2*GRID))*FOG_N); const j=Math.floor(((z+GRID)/GRID)*FOG_N); return {i,j};}
+function clearFogAt(x,z,rad){
+  if(z>=0) return;                       // only north row is fogged
+  const {i,j}=fogIdx(x,z); const rr=Math.ceil(rad/((2*GRID)/FOG_N));
+  for(let di=-rr;di<=rr;di++)for(let dj=-rr;dj<=rr;dj++){const ii=i+di,jj=j+dj;
+    if(ii<0||jj<0||ii>=FOG_N||jj>=FOG_N)continue;
+    if(di*di+dj*dj<=rr*rr) fog[ii][jj]=Math.min(fog[ii][jj],0.1);}
+}
+function refog(){for(let i=0;i<FOG_N;i++)for(let j=0;j<FOG_N;j++)fog[i][j]=1;}
+function fogAt(x,z){ if(z>=0) return 0; const {i,j}=fogIdx(x,z);
+  if(i<0||j<0||i>=FOG_N||j>=FOG_N) return 0; return fog[i][j]; }
+
+// ===== ideas: 4 tracked balls, each with an origin and a visibility flag =====
+let ballR;
+const ideas=[]; const releases=[]; const labBalls=[];
+function jit(key,dx,dz){const c=centerOf(key);return {x:c.x+dx,z:c.z+dz};}
+function makeIdeas(){
+  ideas.length=0;
+  // 6 originals, alternating blind/hidden, each with a small spawn delay so they flow in
+  const seq=['blind','hidden','blind','hidden','blind','hidden'];
+  seq.forEach((origin,i)=>{
+    const p=jit(origin, (i%2?-0.2:0.2)+ (Math.random()-0.5)*0.2, (origin==='blind'?-0.1:0.1)+(Math.random()-0.5)*0.2);
+    ideas.push({x:p.x,z:p.z,tx:p.x,tz:p.z,origin,shown:false,delay:0,counted:false});
+  });
+}
+function arenaSlot(i){ // loose cluster near the arena centre (the bottom of the well)
+  const c=CELLS.open, cx=(c.minx+c.maxx)/2, cz=(c.minz+c.maxz)/2;
+  const ang=(i/6)*Math.PI*2+0.4, r=GRID*0.12;
+  return {x:cx+Math.cos(ang)*r, z:cz+Math.sin(ang)*r};
+}
+function dropRelease(){releases.push({x:centerOf('unknown').x,z:centerOf('unknown').z,y:GRID*2.4,vy:0,landed:false});}
+
+// ===== lab emitter: streams jittered, differently-coloured balls that flood the arena =====
+const lab={active:false, t:0, next:0, emitted:0, max:18};
+function startLab(){ lab.active=true; lab.t=0; lab.next=0; lab.emitted=0; labBalls.length=0; }
+function stopLab(){ lab.active=false; }
+function emitLab(){
+  // born at unknown (north/high), targets a slot piled on top of the arena originals
+  const u=centerOf('unknown');
+  const oi=lab.emitted % 6;
+  const base=arenaSlot(oi);
+  const tx=base.x+(Math.random()-0.5)*0.5, tz=base.z+(Math.random()-0.5)*0.5;
+  labBalls.push({x:u.x+(Math.random()-0.5)*0.6, z:u.z+(Math.random()-0.5)*0.6, tx, tz,
+                 stack:0.06*Math.floor(lab.emitted/6), counted:false}); // later balls ride higher = bury
+  lab.emitted++;
+}
+
+const EASE=0.045, GACC=0.012;
+let frameCount=0;
+function cellAt(x,z){return z<0?(x<0?'unknown':'blind'):(x<0?'hidden':'open');}
+function physics(){
+  frameCount++;
+  pitch+=(pitchTarget-pitch)*0.06;
+
+  // mass is recomputed each frame from balls that have arrived (so beats are reversible)
+  const mass={open:0,hidden:0,blind:0,unknown:0};
+  const settledCount={open:0,hidden:0,blind:0,unknown:0};
+  function settle(b,m){
+    const near=Math.hypot(b.tx-b.x,b.tz-b.z)<0.18;
+    if(near){ const k=cellAt(b.x,b.z); mass[k]+=m; settledCount[k]+=m; }
+  }
+
+  for(const b of ideas){
+    if(!b.shown) continue;
+    if(b.delay>0){ b.delay--; continue; }
+    const k=cellAt(b.x,b.z);
+    if(lift[k]>0.05){                  // long-press peak: shed outward toward the Open seam
+      const cell=CELLS[k], cx=(cell.minx+cell.maxx)/2, cz=(cell.minz+cell.maxz)/2;
+      // direction = away from cell centre (downhill off the peak) biased toward Open (east+south)
+      let dx=b.x-cx, dz=b.z-cz;
+      const oc=centerOf('open');
+      dx+=(oc.x-cx)*0.6; dz+=(oc.z-cz)*0.6;   // bias the shed toward the arena
+      const d=Math.hypot(dx,dz)||1e-6;
+      const speed=Math.min(0.09, 0.05+lift[k]*0.12);
+      b.x+=(dx/d)*speed; b.z+=(dz/d)*speed;
+      b.tx=b.x; b.tz=b.z; b.counted=false;
+    } else {
+      b.x+=(b.tx-b.x)*EASE; b.z+=(b.tz-b.z)*EASE;
+    }
+    if(k==='open'){
+      const oc=centerOf('open'); const depth=-amp.open;
+      const pull=Math.min(0.12, 0.05+depth*0.05);   // firm baseline so they always reach bottom
+      b.x+=(oc.x-b.x)*pull; b.z+=(oc.z-b.z)*pull;
+      b.tx=b.x; b.tz=b.z;
+    }
+    if(b.tz>=0) clearFogAt(b.x,b.z,GRID*0.1);
+    settle(b,MASS_ORIGINAL);
+  }
+
+  if(lab.active){
+    lab.t++;
+    if(lab.emitted<lab.max && lab.t>=lab.next){ emitLab(); lab.next=lab.t + 9 + Math.floor(Math.random()*14); }
+    if(lab.emitted>=lab.max) lab.active=false;
+  }
+  for(const b of labBalls){
+    const k=cellAt(b.x,b.z);
+    if(lift[k]>0.05){
+      const cell=CELLS[k], cx=(cell.minx+cell.maxx)/2, cz=(cell.minz+cell.maxz)/2;
+      let dx=b.x-cx, dz=b.z-cz; const oc=centerOf('open');
+      dx+=(oc.x-cx)*0.6; dz+=(oc.z-cz)*0.6;
+      const d=Math.hypot(dx,dz)||1e-6;
+      const speed=Math.min(0.09, 0.05+lift[k]*0.12);
+      b.x+=(dx/d)*speed; b.z+=(dz/d)*speed; b.tx=b.x; b.tz=b.z; b.counted=false;
+    } else {
+      b.x+=(b.tx-b.x)*EASE*1.1; b.z+=(b.tz-b.z)*EASE*1.1;
+    }
+    if(k==='open'){
+      const oc=centerOf('open'); const depth=-amp.open;
+      const pull=Math.min(0.11, 0.045+depth*0.045);
+      b.x+=(oc.x-b.x)*pull; b.z+=(oc.z-b.z)*pull;
+    }
+    settle(b,MASS_LAB);
+  }
+
+  // wells ease toward depth set by current mass; fill rises with settled mass
+  for(const k in mass){
+    const targetDepth=-Math.min(MAX_DEPTH, mass[k]*DEPTH_PER_MASS);
+    amp[k]+=(targetDepth-amp[k])*0.06;
+    cellMass[k]=mass[k];
+    const targetFill=settledCount[k]*GRID*0.045;
+    fill[k]+=(targetFill-fill[k])*0.05;
+  }
+  releaseWell.unknown+=(0-releaseWell.unknown)*0.02;
+  for(const k in lift){
+    // load resistance: 1-2 balls -> full lift; heavier cells peak progressively less
+    const load=cellMass[k];
+    const resist=Math.max(0.18, 1 - Math.max(0,load-2)*0.28);
+    lift[k]+=(liftTarget[k]*resist - lift[k])*0.12;
+  }
+
+  for(const b of releases){if(!b.landed){b.vy-=GACC*60;b.y+=b.vy;if(b.y<=0){b.y=0;b.landed=true;releaseWell.unknown=-GRID*0.45;}}}
+}
+
+// ===== draw =====
+function quad(p0,p1,p2,p3,fill,stroke,lw){ctx.beginPath();ctx.moveTo(p0.X,p0.Y);ctx.lineTo(p1.X,p1.Y);ctx.lineTo(p2.X,p2.Y);ctx.lineTo(p3.X,p3.Y);ctx.closePath();
+  if(fill){ctx.fillStyle=fill;ctx.fill();}if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=lw;ctx.stroke();}}
+
+// vertical riser between a high edge and the ground, to close the terrace into solid geometry
+function drawRiser(x0,z0,x1,z1,topY0,topY1,col){
+  if(pitch<0.02) return;
+  const a=project(x0,topY0,z0), b=project(x1,topY1,z1), c=project(x1,0,z1), d=project(x0,0,z0);
+  quad(a,b,c,d, hexA(col,0.30), hexA('--ink',0.25), Math.max(1,scale*0.003));
+}
+
+function drawCellTop(cell){
+  const N=12, col=cell.color;
+  for(let i=0;i<N;i++)for(let j=0;j<N;j++){
+    const x0=cell.minx+(i/N)*(cell.maxx-cell.minx),x1=cell.minx+((i+1)/N)*(cell.maxx-cell.minx);
+    const z0=cell.minz+(j/N)*(cell.maxz-cell.minz),z1=cell.minz+((j+1)/N)*(cell.maxz-cell.minz);
+    const p0=project(x0,fabricY(cell,x0,z0),z0),p1=project(x1,fabricY(cell,x1,z0),z0),
+          p2=project(x1,fabricY(cell,x1,z1),z1),p3=project(x0,fabricY(cell,x0,z1),z1);
+    const hAvg=(fabricY(cell,x0,z0)+fabricY(cell,x1,z1))/2 - cell.base*pitch;
+    const norm=Math.max(-1,Math.min(1,hAvg/(GRID*0.6)));
+    quad(p0,p1,p2,p3,hexA(col,Math.max(0.06,0.18+norm*0.16)),null,0);
+  }
+  // gridlines
+  ctx.strokeStyle=hexA(col,0.42);ctx.lineWidth=Math.max(1,scale*0.0022);
+  for(let i=0;i<=N;i++){const x=cell.minx+(i/N)*(cell.maxx-cell.minx);ctx.beginPath();
+    for(let j=0;j<=N;j++){const z=cell.minz+(j/N)*(cell.maxz-cell.minz);const p=project(x,fabricY(cell,x,z),z);j?ctx.lineTo(p.X,p.Y):ctx.moveTo(p.X,p.Y);}ctx.stroke();}
+  for(let j=0;j<=N;j++){const z=cell.minz+(j/N)*(cell.maxz-cell.minz);ctx.beginPath();
+    for(let i=0;i<=N;i++){const x=cell.minx+(i/N)*(cell.maxx-cell.minx);const p=project(x,fabricY(cell,x,z),z);i?ctx.lineTo(p.X,p.Y):ctx.moveTo(p.X,p.Y);}ctx.stroke();}
+}
+
+function drawFog(){
+  if(pitch<0.04) return;            // flat documentation frame: no fog, all cells visible
+  const fa=Math.min(1,(pitch-0.04)/0.5); // fog fades in as we tilt into the terrain
+  for(let i=0;i<FOG_N;i++)for(let j=0;j<FOG_N;j++){const f=fog[i][j];if(f<0.12)continue;
+    const x0=-GRID+(i/FOG_N)*2*GRID,x1=-GRID+((i+1)/FOG_N)*2*GRID;
+    const z0=-GRID+(j/FOG_N)*GRID,z1=-GRID+((j+1)/FOG_N)*GRID;
+    const cell=x0<0?CELLS.unknown:CELLS.blind;
+    const p0=project(x0,fabricY(cell,x0,z0),z0),p1=project(x1,fabricY(cell,x1,z0),z0),
+          p2=project(x1,fabricY(cell,x1,z1),z1),p3=project(x0,fabricY(cell,x0,z1),z1);
+    quad(p0,p1,p2,p3,hexA('--fog',0.8*f*fa),null,0);}
+}
+
+function drawBall(x,y,z,r,fillVar,heavy,dim){
+  const cell=(z<0?(x<0?CELLS.unknown:CELLS.blind):(x<0?CELLS.hidden:CELLS.open));
+  const p=project(x,y,z), s=project(x,fabricY(cell,x,z),z);   // shadow sits on the deformed floor beneath the ball
+  ctx.globalAlpha = dim ? 0.32 : 1;
+  ctx.beginPath();ctx.ellipse(s.X,s.Y,r*scale*0.9,r*scale*0.42*(0.4+0.6*pitch),0,0,Math.PI*2);ctx.fillStyle=hexA('--ink',0.16);ctx.fill();
+  ctx.beginPath();ctx.arc(p.X,p.Y,r*scale,0,Math.PI*2);ctx.fillStyle=cssVar(fillVar);ctx.fill();
+  ctx.lineWidth=Math.max(1.5,scale*0.006);ctx.strokeStyle=cssVar('--ink');ctx.stroke();
+  ctx.beginPath();ctx.arc(p.X-r*scale*0.3,p.Y-r*scale*0.3,r*scale*0.28,0,Math.PI*2);ctx.fillStyle=hexA('--paper',0.7);ctx.fill();
+  if(heavy){ctx.beginPath();ctx.arc(p.X,p.Y,r*scale*0.55,0,Math.PI*2);ctx.strokeStyle=hexA('--paper',0.6);ctx.lineWidth=2;ctx.stroke();}
+  ctx.globalAlpha=1;
+}
+
+function drawArrowsAndAxes(){
+  const fade=1-pitch; if(fade<0.02) return;
+  ctx.save(); ctx.globalAlpha=fade;
+  ctx.fillStyle=cssVar('--ink'); ctx.textAlign='center';
+  ctx.font=`500 ${Math.round(scale*0.07)}px 'Spline Sans Mono',monospace`;
+
+  // Orientation: north(z=-GRID)=unknown-to-self, south(z=+GRID)=known-to-self,
+  //              west(x=-GRID)=unknown-to-others, east(x=+GRID)=known-to-others.
+  // TOP edge label
+  ctx.fillText('unknown to self', project(0,0,-GRID).X, project(0,0,-GRID).Y - scale*0.16);
+  // BOTTOM edge label
+  ctx.fillText('known to self', project(0,0,GRID).X, project(0,0,GRID).Y + scale*0.22);
+  // LEFT edge label (vertical)
+  ctx.save();
+  ctx.translate(project(-GRID,0,0).X - scale*0.20, project(-GRID,0,0).Y);
+  ctx.rotate(-Math.PI/2); ctx.fillText('unknown to others',0,0); ctx.restore();
+  // RIGHT edge label (vertical)
+  ctx.save();
+  ctx.translate(project(GRID,0,0).X + scale*0.20, project(GRID,0,0).Y);
+  ctx.rotate(-Math.PI/2); ctx.fillText('known to others',0,0); ctx.restore();
+
+  // arrows
+  ctx.strokeStyle=cssVar('--ink'); ctx.fillStyle=cssVar('--ink'); ctx.lineWidth=Math.max(2,scale*0.006);
+  function arrow(ax,ay,bx,by){ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.stroke();
+    const a=Math.atan2(by-ay,bx-ax),h=scale*0.05;ctx.beginPath();ctx.moveTo(bx,by);
+    ctx.lineTo(bx-h*Math.cos(a-0.4),by-h*Math.sin(a-0.4));ctx.lineTo(bx-h*Math.cos(a+0.4),by-h*Math.sin(a+0.4));ctx.closePath();ctx.fill();}
+
+  // ASK: solicit feedback -> moves unknown-to-self toward known-to-self (north -> south), drawn on the right margin
+  const axx=project(GRID,0,0).X + scale*0.5;
+  arrow(axx, project(0,0,-GRID*0.4).Y, axx, project(0,0,GRID*0.4).Y);
+  ctx.font=`600 ${Math.round(scale*0.05)}px 'Fraunces',serif`;
+  ctx.save();ctx.translate(axx+scale*0.05, project(0,0,0).Y);ctx.rotate(-Math.PI/2);ctx.fillText('ask',0,0);ctx.restore();
+
+  // TELL: disclosure -> moves unknown-to-others toward known-to-others (west -> east), drawn across the top margin
+  ctx.font=`500 ${Math.round(scale*0.07)}px 'Spline Sans Mono',monospace`;
+  const tyy=project(0,0,-GRID).Y - scale*0.42;
+  arrow(project(-GRID*0.4,0,-GRID).X, tyy, project(GRID*0.4,0,-GRID).X, tyy);
+  ctx.font=`600 ${Math.round(scale*0.05)}px 'Fraunces',serif`;
+  ctx.fillText('tell', project(0,0,-GRID).X, tyy - scale*0.03);
+
+  ctx.restore();
+}
+
+function draw(){
+  computeScale();
+  ctx.clearRect(0,0,W,H);
+  const ink=cssVar('--ink'), lw=Math.max(2,scale*0.006);
+  // draw order: farthest cell (most negative x+z, i.e. north-west) first
+  const order=['unknown','blind','hidden','open'];
+  for(const k of order){
+    const c=CELLS[k];
+    if(pitch>0.02 && c.base>0){
+      // draw the two camera-facing skirts (south and east edges) down to the ground
+      drawRiser(c.minx,c.maxz,c.maxx,c.maxz, fabricY(c,c.minx,c.maxz), fabricY(c,c.maxx,c.maxz), c.color); // south face
+      drawRiser(c.maxx,c.maxz,c.maxx,c.minz, fabricY(c,c.maxx,c.maxz), fabricY(c,c.maxx,c.minz), c.color); // east face
+    }
+    drawCellTop(c);
+  }
+  // crisp outline of each cell footprint
+  ctx.strokeStyle=ink; ctx.lineWidth=lw;
+  for(const k in CELLS){const c=CELLS[k];
+    const a=project(c.minx,fabricY(c,c.minx,c.minz),c.minz),b=project(c.maxx,fabricY(c,c.maxx,c.minz),c.minz),
+          d=project(c.maxx,fabricY(c,c.maxx,c.maxz),c.maxz),e=project(c.minx,fabricY(c,c.minx,c.maxz),c.maxz);
+    quad(a,b,d,e,null,hexA(c.color,0.55),lw*0.6);
+  }
+  drawArrowsAndAxes();
+  // labels
+  for(const k in CELLS){const c=CELLS[k];const cx=(c.minx+c.maxx)/2,cz=(c.minz+c.maxz)/2;
+    let fogged=0; if(cz<0 && pitch>=0.04){const {i,j}=fogIdx(cx,cz);fogged=fog[Math.min(FOG_N-1,Math.max(0,i))][Math.min(FOG_N-1,Math.max(0,j))];}
+    const p=project(cx,fabricY(c,cx,cz)+GRID*0.1,cz);
+    ctx.textAlign='center';
+    ctx.fillStyle=fogged>0.4?hexA('--paper',0.5):hexA(c.color,1);
+    ctx.font=`900 ${Math.round(scale*0.11)}px 'Fraunces',serif`;ctx.fillText(c.label,p.X,p.Y);
+    if(fogged<=0.4){ctx.fillStyle=cssVar('--ink-soft');ctx.font=`400 ${Math.round(scale*0.038)}px 'Spline Sans Mono',monospace`;ctx.fillText(c.sub,p.X,p.Y+scale*0.065);}
+  }
+  // balls — settle into the basin; submerged ones dim as fill rises over them
+  const drawn=[];
+  for(const b of ideas){
+    if(!b.shown) continue;
+    if(fogAt(b.x,b.z)>0.4) continue;
+    const k=cellAt(b.x,b.z), cell=CELLS[k];
+    const y=fabricY(cell,b.x,b.z)+ballR;       // rest on the (sunken) floor
+    const submerged = fillSurfaceY(cell) > y + ballR*0.5;
+    drawn.push({x:b.x,y,z:b.z,r:ballR,fill:'--idea',heavy:false,dim:submerged,d:b.z*2+b.x});
+  }
+  for(const b of labBalls){
+    if(fogAt(b.x,b.z)>0.4) continue;
+    const k=cellAt(b.x,b.z), cell=CELLS[k];
+    const y=fabricY(cell,b.x,b.z)+ballR+(b.stack||0);
+    drawn.push({x:b.x,y,z:b.z,r:ballR*0.92,fill:'--labball',heavy:false,dim:false,d:b.z*2+b.x+1.0+(b.stack||0)});
+  }
+  for(const b of releases) drawn.push({x:b.x,y:b.y+ballR*1.6,z:b.z,r:ballR*1.7,fill:'--release',heavy:true,dim:false,d:b.z*2+b.x+0.001});
+  drawn.sort((a,b)=>a.d-b.d);
+  for(const o of drawn) drawBall(o.x,o.y,o.z,o.r,o.fill,o.heavy,o.dim);
+  // fog drawn LAST so it fully occludes anything beneath it
+  drawFog();
+}
+function frame(){physics();draw();requestAnimationFrame(frame);}
+
+// ===== beats =====
+function resetLoad(){ for(const k in cellMass){cellMass[k]=0; amp[k]=0; fill[k]=0;} }
+function clearCounts(){ for(const b of ideas) b.counted=false; for(const b of labBalls) b.counted=false; }
+function showBall(idx,toArena,stagger){ const b=ideas[idx];
+  if(!b.shown){ b.shown=true; b.delay=stagger||0; }   // fresh stagger only on first reveal
+  if(toArena){const s=arenaSlot(idx); b.tx=s.x; b.tz=s.z;} }
+function showUpTo(n){ for(let i=0;i<6;i++){ if(i<n) showBall(i,true,(i>=2?(i-2)*14:0)); else { ideas[i].shown=false; ideas[i].delay=0; } } }
+const BEATS=[
+  {name:'the window', do(){pitchTarget=0; refog(); releases.length=0; labBalls.length=0; stopLab(); releaseWell.unknown=0; resetLoad(); makeIdeas(); showUpTo(0);}},
+  {name:'reveal',     do(){pitchTarget=1; stopLab(); showUpTo(0);}},
+  {name:'first idea', do(){pitchTarget=1; stopLab(); labBalls.length=0; showUpTo(1);}},
+  {name:'second idea',do(){pitchTarget=1; stopLab(); labBalls.length=0; showUpTo(2);}},
+  {name:'the rest',   do(){pitchTarget=1; stopLab(); labBalls.length=0; showUpTo(6);}},
+  {name:'labs flood', do(){pitchTarget=1; showUpTo(6); startLab();}}
+];
+let beat=0;
+const dotsEl=document.getElementById('dots');
+BEATS.forEach(()=>{const i=document.createElement('i'); dotsEl.appendChild(i);});
+function applyBeat(i){beat=(i+BEATS.length)%BEATS.length;BEATS[beat].do();
+  [...dotsEl.children].forEach((d,n)=>d.classList.toggle('on',n===beat));}
+
+// ===== controls =====
+function screenToFloor(sx,sy){ // exact only near iso; fine for free play at pitch~1
+  const X=(sx-ox)/scale, Y=(sy-oy)/scale;
+  const c=Math.cos(ISO), s=Math.sin(ISO);
+  // invert iso (y=0): X=(x-z)c, Y=(x+z)s  -> x=(X/c+Y/s)/2, z=(Y/s-X/c)/2
+  const x=(X/c + Y/s)/2, z=(Y/s - X/c)/2; return {x,z};
+}
+let freeplay=false;
+function setup(){layout();ballR=GRID*0.07;initFog();makeIdeas();applyBeat(0);}
+setup();requestAnimationFrame(frame);
+addEventListener('resize',()=>layout());
+document.getElementById('next').onclick=()=>applyBeat(beat+1);
+document.getElementById('back').onclick=()=>applyBeat(beat-1);
+document.getElementById('restart').onclick=()=>{initFog();applyBeat(0);};
+const fpBtn=document.getElementById('freeplay');
+fpBtn.onclick=()=>{freeplay=!freeplay;fpBtn.classList.toggle('on',freeplay);};
+const tipEl=document.getElementById('tip');
+document.getElementById('help').onclick=()=>{tipEl.hidden=!tipEl.hidden;};
+function cellKeyAt(x,z){for(const k in CELLS){const c=CELLS[k];if(x>=c.minx&&x<c.maxx&&z>=c.minz&&z<c.maxz)return k;}return null;}
+let pressTimer=null, pressKey=null, longPressing=false;
+const LONG_MS=350;
+cv.addEventListener('pointerdown',e=>{
+  if(!freeplay)return;
+  const {x,z}=screenToFloor(e.clientX*DPR,e.clientY*DPR);
+  pressKey=cellKeyAt(x,z); longPressing=false;
+  if(!pressKey)return;
+  pressTimer=setTimeout(()=>{ longPressing=true; liftTarget[pressKey]=LIFT_MAX; }, LONG_MS); // hold = lift the plane
+});
+function endPress(){
+  if(pressTimer){clearTimeout(pressTimer);pressTimer=null;}
+  if(longPressing && pressKey){ liftTarget[pressKey]=0; }            // release -> settle back down
+  else if(pressKey){                                                 // short click -> drop a weighted ball
+    const c=CELLS[pressKey], cx=(c.minx+c.maxx)/2, cz=(c.minz+c.maxz)/2;
+    labBalls.push({x:cx+(Math.random()-0.5)*0.5,z:cz+(Math.random()-0.5)*0.5,tx:cx+(Math.random()-0.5)*0.6,tz:cz+(Math.random()-0.5)*0.6,stack:0,counted:false});
+  }
+  pressKey=null; longPressing=false;
+}
+addEventListener('pointerup',endPress);
+addEventListener('pointercancel',endPress);
+addEventListener('keydown',e=>{
+  if(e.key===' '||e.key==='ArrowRight'){e.preventDefault();applyBeat(beat+1);}
+  else if(e.key==='ArrowLeft'){applyBeat(beat-1);}
+  else if(e.key==='Home'){initFog();applyBeat(0);}
+  else if(e.key==='f'){fpBtn.click();}
+});
+</script>
+</body>
+</html>
