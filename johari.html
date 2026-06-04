@@ -223,7 +223,23 @@ function buildClimb(){
   climbCols.green=green;
 }
 // ===== RPG dialogue overlaid on the held idle-duress climb (review / reply / exit / devastation) =====
-let dlg='', reviewIdx=0, streamC=0, streamDone=false, panic=0, panicT=0, flash=0;
+let dlg='', reviewIdx=0, reviewPhase=0, streamC=0, streamDone=false, panic=0, panicT=0, flash=0;
+let confetti=[];                              // positive-review celebration burst
+function fireConfetti(){
+  const cols=['--open','--idea','--labball','--hidden','--paper'];
+  for(let i=0;i<80;i++){ const a=-Math.PI/2+(Math.random()-0.5)*1.7, sp=(7+Math.random()*12)*DPR;
+    confetti.push({x:W*0.5+(Math.random()-0.5)*W*0.5, y:H*0.16+(Math.random()-0.5)*H*0.04,
+      vx:Math.cos(a)*sp*0.5+(Math.random()-0.5)*5*DPR, vy:Math.sin(a)*sp-3*DPR,
+      rot:Math.random()*6.28, vr:(Math.random()-0.5)*0.5, col:cols[i%cols.length],
+      w:(5+Math.random()*7)*DPR, h:(8+Math.random()*9)*DPR, life:1}); }
+}
+function drawConfetti(){
+  for(const c of confetti){ ctx.save(); ctx.globalAlpha=Math.max(0,Math.min(1,c.life*1.4));
+    ctx.translate(c.x,c.y); ctx.rotate(c.rot);
+    ctx.fillStyle=cssVar(c.col); ctx.fillRect(-c.w/2,-c.h/2,c.w,c.h);
+    ctx.strokeStyle=hexA('--ink',0.25); ctx.lineWidth=1; ctx.strokeRect(-c.w/2,-c.h/2,c.w,c.h);
+    ctx.restore(); }
+}
 let boxSlide=0, boxSlideT=0;                 // exit: dialogue box slides off-screen
 let pileProg=0, pileT=0, zoomOut=0, zoomT=0; // aftermath: additive right-side balls, then zoom out
 let fadeK=0, fadeKT=0, crisis=0, crisisT=0;
@@ -234,6 +250,10 @@ let staticMotion=1, staticMotionT=1, staticAcc=0;   // how fast the snow churns;
 let clearProg=0, clearProgT=0;                // breathing: white radius that clears the static
 let breathT=0, breathPhase='', breathLabel='', breathPulse=0;  // the grounding exercise timeline
 let glass=[];                                 // crisis: broken-glass shards
+let glassFall=[];                             // crisis: detached shards that fall away
+let breathLocal=0;                            // 0..1 progress within the current breath phase (pacer arc)
+let pacerA=1, pacerAT=1;                       // pacer circle fades out on "there you are"
+let whiteEnd=false;                            // final beat: pure white, no controls
 const lerp=(a,b,t)=>a+(b-a)*t;
 // B&W TV static, masked into broken-glass shards so the scene shows through the intact panes
 const noiseCv=document.createElement('canvas'); noiseCv.width=220; noiseCv.height=150;
@@ -255,11 +275,48 @@ function drawGlass(crack, fill){
   if(fill>0.01){ staticAcc+=staticMotion; if(staticAcc>=1){ staticAcc-=1; regenNoise(); }  // churn slows + freezes as staticMotion->0
     for(const sh of glass){ if(fill<=sh.o) continue;
       ctx.save(); shardPath(sh); ctx.clip(); ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(0,0,W,H); blitStatic(0.85); ctx.restore(); } }
-  if(crack>0.01){ ctx.lineWidth=Math.max(1,scale*0.0026);   // crack lines spread outward as the glass breaks
-    for(const sh of glass){ if(crack<=sh.o) continue;
-      ctx.strokeStyle=`rgba(238,238,238,${0.6*Math.min(1,(crack-sh.o)/0.2)})`; shardPath(sh); ctx.stroke(); } }
+  if(crack>0.01){ ctx.lineJoin='round'; ctx.lineCap='round';   // cracks: dark gap under a bright glint = legible on any background
+    for(const sh of glass){ if(crack<=sh.o) continue; const a=Math.min(1,(crack-sh.o)/0.2);
+      shardPath(sh); ctx.strokeStyle=`rgba(12,11,9,${0.6*a})`;   ctx.lineWidth=Math.max(3,scale*0.0075); ctx.stroke();   // dark fracture gap
+      shardPath(sh); ctx.strokeStyle=`rgba(250,250,247,${0.92*a})`; ctx.lineWidth=Math.max(1.5,scale*0.0034); ctx.stroke(); } // bright edge
+    ctx.lineJoin='miter'; ctx.lineCap='butt'; }
+}
+// detached shards that fall away as the glass shatters
+function spawnGlassFall(n){
+  for(let i=0;i<n;i++){ const s=(16+Math.random()*40)*DPR, k=3+(Math.random()<0.5?0:1), pts=[];
+    for(let j=0;j<k;j++){ const a=(j/k)*6.28+Math.random()*0.7, rr2=s*(0.5+Math.random()*0.7); pts.push({x:Math.cos(a)*rr2,y:Math.sin(a)*rr2}); }
+    glassFall.push({x:W*(0.18+Math.random()*0.64), y:H*(0.08+Math.random()*0.34), pts,
+      vx:(Math.random()-0.5)*3*DPR, vy:(0.5+Math.random()*2)*DPR, rot:Math.random()*6.28, vr:(Math.random()-0.5)*0.16, life:1}); }
+}
+function drawGlassFall(){
+  for(const g of glassFall){ ctx.save(); ctx.globalAlpha=Math.max(0,Math.min(0.92,g.life)); ctx.translate(g.x,g.y); ctx.rotate(g.rot);
+    ctx.beginPath(); ctx.moveTo(g.pts[0].x,g.pts[0].y); for(let i=1;i<g.pts.length;i++) ctx.lineTo(g.pts[i].x,g.pts[i].y); ctx.closePath();
+    ctx.fillStyle='rgba(216,224,228,0.16)'; ctx.fill();
+    ctx.lineWidth=Math.max(2,scale*0.0045); ctx.strokeStyle='rgba(250,252,250,0.9)'; ctx.stroke();   // bright glint edge
+    ctx.lineWidth=Math.max(1,scale*0.002); ctx.strokeStyle='rgba(12,11,9,0.45)'; ctx.stroke();        // dark inner edge
+    ctx.restore(); }
 }
 function rr(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+// breathing pacer: a circle that expands on inhale / contracts on exhale, with a number-less sweep arc forecasting the phase end
+function drawBreathPacer(){
+  if(pacerA<0.01) return;
+  ctx.save(); ctx.globalAlpha=pacerA;
+  const cx=W/2, cy=H/2, R0=Math.min(W,H)*0.14, gr=R0*(0.5+0.5*breathPulse);
+  const halo=ctx.createRadialGradient(cx,cy,gr*0.2,cx,cy,gr*1.7);
+  halo.addColorStop(0,'rgba(248,246,240,0.92)'); halo.addColorStop(1,'rgba(248,246,240,0)');
+  ctx.fillStyle=halo; ctx.beginPath(); ctx.arc(cx,cy,gr*1.7,0,Math.PI*2); ctx.fill();
+  ctx.save(); ctx.translate(cx,cy); ctx.rotate(frameCount*0.008);   // slow spin = alive
+  ctx.strokeStyle=hexA('--ink',0.14); ctx.lineWidth=Math.max(1,scale*0.003); ctx.setLineDash([scale*0.018,scale*0.03]);
+  ctx.beginPath(); ctx.arc(0,0,gr*1.28,0,Math.PI*2); ctx.stroke(); ctx.setLineDash([]); ctx.restore();
+  ctx.beginPath(); ctx.arc(cx,cy,gr,0,Math.PI*2); ctx.fillStyle=hexA('--open',0.12); ctx.fill();   // the breath, sized to the phase
+  ctx.strokeStyle=hexA('--ink',0.16); ctx.lineWidth=Math.max(3,scale*0.008);
+  ctx.beginPath(); ctx.arc(cx,cy,gr,0,Math.PI*2); ctx.stroke();
+  const col = breathPhase==='in'?'--open' : breathPhase==='hold'?'--hidden' : '--idea';   // sweep arc = how far through this phase
+  ctx.strokeStyle=cssVar(col); ctx.lineWidth=Math.max(4,scale*0.011); ctx.lineCap='round';
+  ctx.beginPath(); ctx.arc(cx,cy,gr,-Math.PI/2,-Math.PI/2+Math.max(0.0001,breathLocal)*Math.PI*2); ctx.stroke();
+  ctx.lineCap='butt';
+  ctx.restore();
+}
 const REVIEW=[
   {cat:'COLLABORATION',  score:'4',   pips:4,   text:'Collaboration: strong. You unblock people and share context generously.'},
   {cat:'DELIVERY',       score:'4',   pips:4,   text:'Delivery: solid. Shipped on time, fewer regressions this cycle.'},
@@ -267,12 +324,13 @@ const REVIEW=[
   {cat:'OWNERSHIP',      score:'4',   pips:4,   text:'Ownership: great. You take problems end to end.'},
   {cat:'TECHNICAL DEPTH',score:'2.5', pips:2.5, text:'Technical depth: this one is low. You need to trust the AI more. Delegate more to the AI.', panic:true}
 ];
+const REVIEW_POS='Strong cycle. Fours across the board — collaboration, delivery, communication, ownership.';
 const REPLY='Understood. I\u2019ll lean on the AI more. Thank you for the feedback.';
 const RUMINATE='Two and a half. On depth. ...I\u2019m the one who cracked the problem the CTO and three staff engineers couldn\u2019t. How is that a 2.5?';
 const NEWS='New release: sub-agent teams, shared channels, remote agents. The surface area keeps expanding.';
 const PEERTEXT='Hey, quick favour — mind reviewing my PR? Tiny change, should be fast.';
 const TROLLTEXT="...it's 2,000 lines. The agent wrote all of it overnight. You'll read every line, right?";
-function curText(){ return dlg==='review'?REVIEW[reviewIdx].text : dlg==='reply'?REPLY : dlg==='devast'?RUMINATE
+function curText(){ return dlg==='review'?(reviewPhase===0?REVIEW_POS:REVIEW[4].text) : dlg==='reply'?REPLY : dlg==='devast'?RUMINATE
   : dlg==='news'?NEWS : dlg==='peer'?PEERTEXT : dlg==='troll'?TROLLTEXT : ''; }
 // pixel-art portraits. '.'=transparent
 const BOSS=[ // original "pointy-haired manager" archetype (homage to the trope, not the trademarked character)
@@ -377,6 +435,10 @@ let frameCount=0;
 function cellAt(x,z){return z<0?(x<0?'unknown':'blind'):(x<0?'hidden':'open');}
 function physics(){
   frameCount++;
+  if(confetti.length){ for(const c of confetti){ c.vy+=0.35*DPR; c.x+=c.vx; c.y+=c.vy; c.rot+=c.vr; c.life-=0.011; }
+    confetti=confetti.filter(c=>c.life>0 && c.y<H+60*DPR); }
+  if(glassFall.length){ for(const g of glassFall){ g.vy+=0.5*DPR; g.x+=g.vx; g.y+=g.vy; g.rot+=g.vr; g.life-=0.007; }
+    glassFall=glassFall.filter(g=>g.life>0 && g.y<H+80*DPR); }
   pitch+=(pitchTarget-pitch)*0.06;
   bg+=(bgT-bg)*0.05; unkMix+=(unkMixT-unkMix)*0.08; axisA+=(axisT-axisA)*0.1;
   for(const k in cellAlpha) cellAlpha[k]+=(cellAlphaT[k]-cellAlpha[k])*0.1;
@@ -402,14 +464,22 @@ function physics(){
     staticMotion += (staticMotionT-staticMotion)*0.02;   // the snow slows to a stop
     clearProg += (clearProgT-clearProg)*0.05;            // breathing: white clears the static
     fadeK += (fadeKT-fadeK)*0.03;
-    if(dlg==='breathe'){                            // auto-timed grounding exercise
+    if(dlg==='breathe'){                            // one round, 3-3-3, clearing to white
       breathT++;
-      const IN=200, HOLD=130, OUT=260, CYC=IN+HOLD+OUT, t=breathT%CYC, cyc=Math.floor(breathT/CYC);
+      const IN=180, HOLD=180, OUT=180, CYC=IN+HOLD+OUT;   // ~3s in · 3s hold · 3s out (at 60fps)
+      const t=Math.min(breathT, CYC);
       let phase, localT;
-      if(t<IN){ phase='in'; localT=t/IN; } else if(t<IN+HOLD){ phase='hold'; localT=(t-IN)/HOLD; } else { phase='out'; localT=(t-IN-HOLD)/OUT; }
-      if(phase!==breathPhase){ if(phase==='in') clearProgT=Math.min(1, clearProgT+1/3); breathPhase=phase; }  // each inhale clears one more step
-      breathPulse = phase==='in'?localT : phase==='hold'?1 : 1-localT;
-      breathLabel = (clearProgT>=1 && cyc>=3) ? 'there you are.' : (phase==='in'?'breathe in…':phase==='hold'?'hold…':'breathe out…');
+      if(t<IN){ phase='in'; localT=t/IN; }
+      else if(t<IN+HOLD){ phase='hold'; localT=(t-IN)/HOLD; }
+      else if(t<CYC){ phase='out'; localT=(t-IN-HOLD)/OUT; }
+      else { phase='done'; localT=1; }
+      breathPhase=phase;
+      breathPulse = phase==='in'?localT : phase==='hold'?1 : phase==='out'?1-localT : 0;
+      breathLocal = localT;
+      const done = breathT>=CYC;
+      clearProgT = Math.min(1, breathT/CYC);          // one breath washes the field to white
+      breathLabel = done ? 'there you are.' : (phase==='in'?'breathe in…':phase==='hold'?'hold…':'breathe out…');
+      pacerAT = done ? 0 : 1; pacerA += (pacerAT-pacerA)*0.04;   // circle dissolves at "there you are"
     }
     if(dlg && dlg!=='breath' && dlg!=='breathe'){ const t=curText();
       const gate = dlg!=='devast' || mgrExit>0.5;   // hold the monologue until the boss has left
@@ -582,6 +652,7 @@ function drawAxes(){
 function draw(){
   computeScale();
   ctx.clearRect(0,0,W,H);
+  if(whiteEnd){ ctx.fillStyle='rgb(248,246,240)'; ctx.fillRect(0,0,W,H); return; }   // final: just white
   if(bg<0.999){ ctx.fillStyle=`rgba(0,0,0,${1-bg})`; ctx.fillRect(0,0,W,H); }  // black screen, fades to paper
   if(climbing){ drawClimb(); if(dlg) drawDlg(); fadeOverlay(); return; }
   if(snapping){ drawSnap(); fadeOverlay(); return; }
@@ -759,6 +830,7 @@ function drawClimb(){
   if(flash>0.01){ ctx.fillStyle=`rgba(${r.r},${r.g},${r.b},${flash*0.5})`; ctx.fillRect(0,0,W,H); }
   // crisis: the signal shatters — cracks spread first (glassK), static fills the panes later (crisis)
   if(glassK>0.01 || crisis>0.01) drawGlass(glassK, crisis);
+  if(glassFall.length) drawGlassFall();
   // breathing: a pulsing radius clears the frozen static into calm white, paced by each breath
   if(clearProg>0.001){
     const R=Math.hypot(W,H), cr=(clearProg*0.62 + breathPulse*0.06)*R;
@@ -768,6 +840,7 @@ function drawClimb(){
     ctx.strokeStyle=`rgba(255,255,255,${0.25*(1-clearProg)})`; ctx.lineWidth=Math.max(1,scale*0.004);
     ctx.beginPath(); ctx.arc(cx,H/2,cr,0,Math.PI*2); ctx.stroke();
   }
+  if(dlg==='breathe') drawBreathPacer();
 
   if(climbIntro<0.999){ ctx.fillStyle=`rgba(243,234,216,${1-climbIntro})`; ctx.fillRect(0,0,W,H); }
 }
@@ -878,7 +951,7 @@ function drawThoughtBubble(matrix,text,shown,done,a){
   ctx.restore();
 }
 function drawDlg(){
-  if(dlg==='review'){ drawStatCard(reviewIdx,1); drawDialogBox(BOSS,'ENGINEERING MANAGER',curText(),streamC,streamDone,0); }
+  if(dlg==='review'){ drawStatCard(reviewPhase===0?3:4,1); if(confetti.length) drawConfetti(); drawDialogBox(BOSS,'ENGINEERING MANAGER',curText(),streamC,streamDone,0); }
   else if(dlg==='reply'){ drawStatCard(REVIEW.length-1,1); drawDialogBox(ICME,'YOU',curText(),streamC,streamDone,0); }
   else if(dlg==='exit'){ drawStatCard(REVIEW.length-1,1-boxSlide); drawDialogBox(BOSS,'ENGINEERING MANAGER','',0,false,boxSlide); }
   else if(dlg==='devast'){ drawDevast(); }
@@ -908,7 +981,7 @@ const BEATS=[
   // ---- intro: build the window from nothing ----
   {name:'black',   do(){pitchTarget=0; bgT=0; unkMixT=0; axisT=0; setCells(0,0,0,0); showControls(false);
                         refog(); releases.length=0; labBalls.length=0; stopLab(); releaseWell.unknown=0; resetLoad(); makeIdeas(); showUpTo(0);
-                        climbCols=null; pileProg=0; pileT=0; zoomOut=0; zoomT=0; fadeK=0; fadeKT=0; crisis=0; crisisT=0; mgrExit=0; mgrExitT=0; glass=[]; glassK=0; glassKT=0; greenShown=0; greenShownT=0; staticMotion=1; staticMotionT=1; staticAcc=0; clearProg=0; clearProgT=0; breathT=0; breathPhase=''; breathLabel=''; breathPulse=0; panic=0; panicT=0; flash=0; wound=0;}},
+                        climbCols=null; pileProg=0; pileT=0; zoomOut=0; zoomT=0; fadeK=0; fadeKT=0; crisis=0; crisisT=0; mgrExit=0; mgrExitT=0; glass=[]; glassK=0; glassKT=0; glassFall=[]; greenShown=0; greenShownT=0; staticMotion=1; staticMotionT=1; staticAcc=0; clearProg=0; clearProgT=0; breathT=0; breathPhase=''; breathLabel=''; breathPulse=0; breathLocal=0; pacerA=1; pacerAT=1; whiteEnd=false; reviewPhase=0; confetti=[]; panic=0; panicT=0; flash=0; wound=0;}},
   {name:'unknown', do(){pitchTarget=0; bgT=1; unkMixT=0; axisT=0; setCells(1,0,0,0); showControls(true);}},
   {name:'+ blind', do(){pitchTarget=0; bgT=1; unkMixT=1; axisT=1; setCells(1,1,0,0);}},
   {name:'+ open',  do(){pitchTarget=0; bgT=1; unkMixT=1; axisT=1; setCells(1,1,1,0);}},
@@ -922,7 +995,8 @@ const BEATS=[
   {name:'snap',       do(){pitchTarget=1; showUpTo(6); floodFill(); snapping=true; snapProg=0; buildShards(); buildHistogram();}},
   {name:'climb',      do(){showUpTo(6); floodFill(); climbing=true; climbStep=0; climbProgC=0; stamina=1; wound=0; shakeImp=0; climbIntro=0; roll=0; rollTarget=0; buildClimb();}},
   {name:'review',     do(){ if(!climbCols){ showUpTo(6); floodFill(); buildClimb(); }
-                        climbing=true; dlg='review'; reviewIdx=0; streamC=0; streamDone=false; panic=0; panicT=0; flash=0;
+                        climbing=true; dlg='review'; reviewIdx=0; reviewPhase=0; streamC=0; streamDone=false; panic=0; panicT=0; flash=0;
+                        confetti=[]; fireConfetti();
                         climbStep=CLIMB_MAX; climbProgC=CLIMB_MAX; stamina=0.12; wound=1; roll=0; rollTarget=0; climbIntro=1; }},
   {name:'reply',      do(){ climbing=true; dlg='reply'; streamC=0; streamDone=false; panicT=1;
                         climbStep=CLIMB_MAX; climbProgC=CLIMB_MAX; stamina=0.12; wound=1; climbIntro=1; boxSlide=0; }},
@@ -937,14 +1011,17 @@ const BEATS=[
   {name:'peer',       do(){ climbing=true; dlg='peer'; streamC=0; streamDone=false; panicT=1; pileT=1; zoomT=1; glassKT=1; crisisT=0; greenShownT=1;  // a peer drops one green ball, casual ask
                         climbStep=CLIMB_MAX; climbProgC=CLIMB_MAX; stamina=0.12; wound=1; climbIntro=1; }},
   {name:'troll',      do(){ climbing=true; dlg='troll'; streamC=0; streamDone=false; panicT=1; pileT=1; zoomT=1; glassKT=1; crisisT=1; greenShownT=99;  // troll reveal + 2,000-line flood -> static fills the cracks
+                        spawnGlassFall(14);
                         climbStep=CLIMB_MAX; climbProgC=CLIMB_MAX; stamina=0.12; wound=1; climbIntro=1; }},
   {name:'static',     do(){ climbing=true; dlg=''; panicT=1; pileT=1; zoomT=1; glassKT=1; crisisT=1; greenShownT=99; staticMotionT=1;  // just static — full field, red still pulsing
+                        spawnGlassFall(8);
                         climbStep=CLIMB_MAX; climbProgC=CLIMB_MAX; stamina=0.12; wound=1; climbIntro=1; }},
   {name:'breath',     do(){ climbing=true; dlg='breath'; panicT=1; pileT=1; zoomT=1; glassKT=1; crisisT=1; greenShownT=99; staticMotionT=0;  // static slows to a stop; "..." -> the word breath
                         climbStep=CLIMB_MAX; climbProgC=CLIMB_MAX; stamina=0.12; wound=1; climbIntro=1; }},
   {name:'breathe',    do(){ climbing=true; dlg='breathe'; panicT=0; pileT=1; zoomT=1; glassKT=1; crisisT=1; greenShownT=99;  // timed grounding exercise; breaths clear the static to white
-                        staticMotion=0; staticMotionT=0; breathT=0; breathPhase=''; clearProg=0; clearProgT=0;
-                        climbStep=CLIMB_MAX; climbProgC=CLIMB_MAX; stamina=0.12; wound=1; climbIntro=1; }}
+                        staticMotion=0; staticMotionT=0; breathT=0; breathPhase=''; clearProg=0; clearProgT=0; pacerA=1; pacerAT=1;
+                        climbStep=CLIMB_MAX; climbProgC=CLIMB_MAX; stamina=0.12; wound=1; climbIntro=1; }},
+  {name:'white',      do(){ climbing=false; dlg=''; whiteEnd=true; showControls(false); }}   // final: pure white, no controls
 ];
 let beat=0;
 const KEEPCLIMB=['climb','review','reply','devast','breaking','fill','glass','peer','troll','static','breath','breathe'];
@@ -953,7 +1030,7 @@ BEATS.forEach(()=>{const i=document.createElement('i'); dotsEl.appendChild(i);})
 function applyBeat(i){beat=(i+BEATS.length)%BEATS.length;
   const nm=BEATS[beat].name;
   // defaults for the post-intro beats: full window present, paper bg, coloured unknown, controls shown
-  bgT=1; unkMixT=1; axisT=0; setCells(1,1,1,1); showControls(true);
+  bgT=1; unkMixT=1; axisT=0; setCells(1,1,1,1); showControls(true); whiteEnd=false;
   if(nm!=='snap'){ snapping=false; snapProg=0; shards.length=0; hist=null; }
   if(!KEEPCLIMB.includes(nm)){ climbing=false; }
   dlg=''; boxSlideT=0;                                  // dialogue beats set their own mode
@@ -972,8 +1049,7 @@ function advance(){
   if(nm==='climb' && climbStep<CLIMB_MAX){ climbStep++; onClimbStep(); return; }
   if(nm==='review'){
     if(!streamDone){ streamC=curText().length; streamDone=true; return; }
-    if(reviewIdx<REVIEW.length-1){ reviewIdx++; streamC=0; streamDone=false;
-      if(REVIEW[reviewIdx].panic){ panicT=1; flash=1; shakeImp=1; } return; }
+    if(reviewPhase===0){ reviewPhase=1; streamC=0; streamDone=false; confetti=[]; panicT=1; flash=1; shakeImp=1; return; }
   }
   if((nm==='reply'||nm==='devast'||nm==='breaking'||nm==='peer'||nm==='troll') && !streamDone){ streamC=curText().length; streamDone=true; return; }
   applyBeat(beat+1);
