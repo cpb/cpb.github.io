@@ -466,7 +466,7 @@ function physics(){
     fadeK += (fadeKT-fadeK)*0.03;
     if(dlg==='breathe'){                            // one round, 3-3-3, clearing to white
       breathT++;
-      const IN=180, HOLD=180, OUT=180, CYC=IN+HOLD+OUT;   // ~3s in · 3s hold · 3s out (at 60fps)
+      const IN=240, HOLD=240, OUT=240, CYC=IN+HOLD+OUT;   // ~4s in · 4s hold · 4s out (at 60fps)
       const t=Math.min(breathT, CYC);
       let phase, localT;
       if(t<IN){ phase='in'; localT=t/IN; }
@@ -1077,7 +1077,7 @@ function cellKeyAt(x,z){for(const k in CELLS){const c=CELLS[k];if(x>=c.minx&&x<c
 let pressTimer=null, pressKey=null, longPressing=false;
 const LONG_MS=350;
 cv.addEventListener('pointerdown',e=>{
-  if(!freeplay)return;
+  if(!freeplay){ advance(); return; }   // phone: tap anywhere to advance (buttons still handle back/restart)
   const {x,z}=screenToFloor(e.clientX*DPR,e.clientY*DPR);
   pressKey=cellKeyAt(x,z); longPressing=false;
   if(!pressKey)return;
